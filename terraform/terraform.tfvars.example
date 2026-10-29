@@ -1,0 +1,9 @@
+# Exemplo de configuração do Terraform
+# Copie este arquivo para terraform.tfvars e ajuste os valores conforme necessário
+
+kubeconfig_path = "~/.kube/config"
+db_name = "os_service_db"
+db_username = "os_service_user"
+db_password = "os_service_password"
+storage_class_name = "standard"
+storage_size = "10Gi"

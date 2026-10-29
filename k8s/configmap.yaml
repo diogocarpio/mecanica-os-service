@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: os-service-config
+  namespace: os-service
+data:
+  SPRING_PROFILES_ACTIVE: "prod"
+  LOGGING_LEVEL_COM_F1RSTERS_OS_SERVICE: "INFO"
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,prometheus"
