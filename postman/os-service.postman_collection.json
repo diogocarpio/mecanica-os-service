@@ -1,0 +1,115 @@
+{
+  "info": {
+    "name": "OS Service - Postman Collection",
+    "description": "Coleção base para os endpoints do microsserviço OS Service.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Criar Ordem de Serviço",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"cpfCnpjCliente\": \"12345678909\",\n  \"placaVeiculo\": \"ABC1234\",\n  \"servicosIds\": [\"1\", \"2\"],\n  \"pecasIds\": [\"1\"]\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8081/api/ordens-servico",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8081",
+          "path": ["api", "ordens-servico"]
+        }
+      }
+    },
+    {
+      "name": "Listar Ordens",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8081/api/ordens-servico",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8081",
+          "path": ["api", "ordens-servico"]
+        }
+      }
+    },
+    {
+      "name": "Consultar Status da OS",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8081/api/ordens-servico/1/status",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8081",
+          "path": ["api", "ordens-servico", "1", "status"]
+        }
+      }
+    },
+    {
+      "name": "Atualizar Status",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"novoStatus\": \"EM_EXECUCAO\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8081/api/ordens-servico/1/status",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8081",
+          "path": ["api", "ordens-servico", "1", "status"]
+        }
+      }
+    },
+    {
+      "name": "Responder Orçamento",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"aprovado\": true\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8081/api/ordens-servico/1/orcamento/resposta",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8081",
+          "path": ["api", "ordens-servico", "1", "orcamento", "resposta"]
+        }
+      }
+    },
+    {
+      "name": "Notificar Status",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"novoStatus\": \"FINALIZADA\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8081/api/ordens-servico/1/status/notificacao",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8081",
+          "path": ["api", "ordens-servico", "1", "status", "notificacao"]
+        }
+      }
+    }
+  ]
+}

@@ -10,6 +10,6 @@ class StatusOrdemServicoTest {
     void values_ShouldContainAllStatuses() {
         StatusOrdemServico[] statuses = StatusOrdemServico.values();
         
-        assertEquals(6, statuses.length);
+        assertEquals(7, statuses.length);
     }
 }

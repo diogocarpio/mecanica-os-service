@@ -174,6 +174,7 @@ public class OrdemServicoService {
             StatusOrdemServico statusAnterior = os.getStatus();
             MDC.put("status_anterior", statusAnterior.name());
 
+            validarTransicaoStatus(statusAnterior, novoStatus, id);
             os.setStatus(novoStatus);
             OrdemServico updated = repo.save(os);
 
@@ -363,6 +364,85 @@ public class OrdemServicoService {
 
         } finally {
             MDC.clear();
+        }
+    }
+
+    @Transactional
+    public OrdemServico cancelarOrdem(Long id, String motivo) {
+        MDC.put(OPERATION, "cancelar_ordem");
+        MDC.put(OS_ID, id.toString());
+
+        try {
+            OrdemServico os = repo.findById(id).orElseThrow(() -> new RuntimeException(OS_NAO_ENCONTRADA));
+            StatusOrdemServico statusAnterior = os.getStatus();
+            validarTransicaoStatus(statusAnterior, StatusOrdemServico.CANCELADA, id);
+
+            os.setStatus(StatusOrdemServico.CANCELADA);
+            OrdemServico updated = repo.save(os);
+            publishOSEvent(updated, "os.cancelled");
+
+            recordStatusTransition(updated, statusAnterior, StatusOrdemServico.CANCELADA);
+            log.info("OS cancelada com sucesso: id={}, motivo={}", id, motivo);
+            return updated;
+        } finally {
+            MDC.clear();
+        }
+    }
+
+    @Transactional
+    public OrdemServico processarEventoSaga(OSEvent event) {
+        if (event == null || event.getOsId() == null) {
+            throw new IllegalArgumentException("Evento de saga inválido");
+        }
+
+        OrdemServico os = repo.findById(event.getOsId()).orElseThrow(() -> new RuntimeException(OS_NAO_ENCONTRADA));
+        StatusOrdemServico statusAnterior = os.getStatus();
+
+        switch (event.getEventType()) {
+            case "orcamento.aprovado" -> {
+                validarTransicaoStatus(statusAnterior, StatusOrdemServico.EM_EXECUCAO, event.getOsId());
+                os.setStatus(StatusOrdemServico.EM_EXECUCAO);
+                publishOSEvent(os, "os.approved");
+            }
+            case "orcamento.rejeitado" -> {
+                validarTransicaoStatus(statusAnterior, StatusOrdemServico.CANCELADA, event.getOsId());
+                os.setStatus(StatusOrdemServico.CANCELADA);
+                publishOSEvent(os, "os.cancelled");
+            }
+            case "execution.completed" -> {
+                validarTransicaoStatus(statusAnterior, StatusOrdemServico.FINALIZADA, event.getOsId());
+                os.setStatus(StatusOrdemServico.FINALIZADA);
+                publishOSEvent(os, "os.status.updated");
+            }
+            case "os.cancelled" -> {
+                validarTransicaoStatus(statusAnterior, StatusOrdemServico.CANCELADA, event.getOsId());
+                os.setStatus(StatusOrdemServico.CANCELADA);
+            }
+            default -> log.warn("Evento de saga não mapeado: {}", event.getEventType());
+        }
+
+        OrdemServico updated = repo.save(os);
+        recordStatusTransition(updated, statusAnterior, updated.getStatus());
+        return updated;
+    }
+
+    private void validarTransicaoStatus(StatusOrdemServico statusAnterior, StatusOrdemServico novoStatus, Long id) {
+        if (statusAnterior == null) {
+            throw new IllegalStateException("Status atual da OS não pode ser nulo");
+        }
+
+        boolean transicaoValida = switch (statusAnterior) {
+            case RECEBIDA -> novoStatus == StatusOrdemServico.DIAGNOSTICO || novoStatus == StatusOrdemServico.AGUARDANDO_APROVACAO || novoStatus == StatusOrdemServico.CANCELADA;
+            case DIAGNOSTICO -> novoStatus == StatusOrdemServico.AGUARDANDO_APROVACAO || novoStatus == StatusOrdemServico.CANCELADA;
+            case AGUARDANDO_APROVACAO -> novoStatus == StatusOrdemServico.EM_EXECUCAO || novoStatus == StatusOrdemServico.CANCELADA;
+            case EM_EXECUCAO -> novoStatus == StatusOrdemServico.FINALIZADA || novoStatus == StatusOrdemServico.CANCELADA;
+            case FINALIZADA -> novoStatus == StatusOrdemServico.ENTREGUE || novoStatus == StatusOrdemServico.CANCELADA;
+            case ENTREGUE -> false;
+            case CANCELADA -> false;
+        };
+
+        if (!transicaoValida) {
+            throw new IllegalStateException("Transição de status inválida para a OS " + id + ": " + statusAnterior + " -> " + novoStatus);
         }
     }
 

@@ -109,7 +109,7 @@ class OrdemServicoServiceTest {
     @Test
     void atualizarStatus_DeveAtualizarStatusComSucesso() {
         Long id = 1L;
-        StatusOrdemServico novoStatus = StatusOrdemServico.EM_EXECUCAO;
+        StatusOrdemServico novoStatus = StatusOrdemServico.AGUARDANDO_APROVACAO;
 
         OrdemServico os = new OrdemServico();
         os.setId(id);
@@ -316,5 +316,63 @@ class OrdemServicoServiceTest {
         assertEquals("Erro ao processar notificação de status", ex.getMessage());
         assertNotNull(ex.getCause());
         assertEquals("OS não encontrada", ex.getCause().getMessage());
+    }
+
+    @Test
+    void atualizarStatus_DeveRejeitarTransicaoInvalida() {
+        Long id = 1L;
+
+        OrdemServico os = new OrdemServico();
+        os.setId(id);
+        os.setStatus(StatusOrdemServico.RECEBIDA);
+
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+
+        RuntimeException ex = assertThrows(RuntimeException.class, () -> service.atualizarStatus(id, StatusOrdemServico.FINALIZADA));
+        assertEquals("Erro ao atualizar status da OS", ex.getMessage());
+        assertNotNull(ex.getCause());
+        assertTrue(ex.getCause().getMessage().contains("Transição de status inválida"));
+    }
+
+    @Test
+    void processarEventoSaga_DeveFinalizarOrdemQuandoExecutionCompleta() {
+        Long id = 1L;
+        OrdemServico os = new OrdemServico();
+        os.setId(id);
+        os.setStatus(StatusOrdemServico.EM_EXECUCAO);
+        os.setClienteId("12345678909");
+        os.setVeiculoId("ABC1234");
+
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+        when(repository.save(any(OrdemServico.class))).thenReturn(os);
+
+        OSEvent event = new OSEvent(id, "12345678909", "ABC1234", List.of("1"), List.of("A1"), null, StatusOrdemServico.FINALIZADA, "execution.completed");
+
+        OrdemServico result = service.processarEventoSaga(event);
+
+        assertNotNull(result);
+        assertEquals(StatusOrdemServico.FINALIZADA, result.getStatus());
+        verify(repository, times(1)).save(any(OrdemServico.class));
+    }
+
+    @Test
+    void processarEventoSaga_DeveCancelarOrdemQuandoRecebeEventoCancelado() {
+        Long id = 1L;
+        OrdemServico os = new OrdemServico();
+        os.setId(id);
+        os.setStatus(StatusOrdemServico.RECEBIDA);
+        os.setClienteId("12345678909");
+        os.setVeiculoId("ABC1234");
+
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+        when(repository.save(any(OrdemServico.class))).thenReturn(os);
+
+        OSEvent event = new OSEvent(id, "12345678909", "ABC1234", List.of("1"), List.of("A1"), null, StatusOrdemServico.CANCELADA, "os.cancelled");
+
+        OrdemServico result = service.processarEventoSaga(event);
+
+        assertNotNull(result);
+        assertEquals(StatusOrdemServico.CANCELADA, result.getStatus());
+        verify(repository, times(1)).save(any(OrdemServico.class));
     }
 }
