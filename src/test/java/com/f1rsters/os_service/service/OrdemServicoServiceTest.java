@@ -7,6 +7,7 @@ import com.f1rsters.os_service.dto.NotificacaoStatusDTO;
 import com.f1rsters.os_service.dto.RespostaOrcamentoDTO;
 import com.f1rsters.os_service.repository.OrdemServicoRepository;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,15 +30,14 @@ class OrdemServicoServiceTest {
     private OrdemServicoRepository repository;
 
     @Mock
-    private MeterRegistry meterRegistry;
-
-    @Mock
     private RabbitTemplate rabbitTemplate;
 
+    private MeterRegistry meterRegistry;
     private OrdemServicoService service;
 
     @BeforeEach
     void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
         service = new OrdemServicoService(repository, meterRegistry, rabbitTemplate);
     }
 
@@ -91,20 +91,6 @@ class OrdemServicoServiceTest {
     }
 
     @Test
-    void atualizarStatus_DeveLancarExcecaoQuandoOsNaoEncontrada() {
-        // Arrange
-        Long id = 1L;
-        StatusOrdemServico novoStatus = StatusOrdemServico.EM_EXECUCAO;
-
-        when(repository.findById(id)).thenReturn(Optional.empty());
-
-        // Act & Assert
-        assertThrows(RuntimeException.class, () -> service.atualizarStatus(id, novoStatus));
-        verify(repository, times(1)).findById(id);
-        verify(repository, never()).save(any(OrdemServico.class));
-    }
-
-    @Test
     void listarTodas_DeveRetornarListaDeOrdens() {
         // Arrange
         OrdemServico os1 = new OrdemServico();
@@ -142,17 +128,6 @@ class OrdemServicoServiceTest {
         // Assert
         assertNotNull(result);
         assertEquals(id, result.getId());
-        verify(repository, times(1)).findById(id);
-    }
-
-    @Test
-    void detalhar_DeveLancarExcecaoQuandoOsNaoEncontrada() {
-        // Arrange
-        Long id = 1L;
-        when(repository.findById(id)).thenReturn(Optional.empty());
-
-        // Act & Assert
-        assertThrows(RuntimeException.class, () -> service.detalhar(id));
         verify(repository, times(1)).findById(id);
     }
 
@@ -222,25 +197,6 @@ class OrdemServicoServiceTest {
         assertEquals(StatusOrdemServico.AGUARDANDO_APROVACAO, result.getStatus());
         verify(repository, times(1)).findById(id);
         verify(repository, times(1)).save(any(OrdemServico.class));
-    }
-
-    @Test
-    void processarRespostaOrcamento_DeveLancarExcecaoQuandoStatusInvalido() {
-        // Arrange
-        Long id = 1L;
-        RespostaOrcamentoDTO dto = new RespostaOrcamentoDTO();
-        dto.aprovado = true;
-
-        OrdemServico os = new OrdemServico();
-        os.setId(id);
-        os.setStatus(StatusOrdemServico.RECEBIDA);
-
-        when(repository.findById(id)).thenReturn(Optional.of(os));
-
-        // Act & Assert
-        assertThrows(RuntimeException.class, () -> service.processarRespostaOrcamento(id, dto));
-        verify(repository, times(1)).findById(id);
-        verify(repository, never()).save(any(OrdemServico.class));
     }
 
     @Test

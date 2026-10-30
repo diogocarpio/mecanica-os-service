@@ -258,10 +258,10 @@ public class OrdemServicoService {
         Timer.Sample sample = Timer.start(meterRegistry);
         MDC.put(OPERATION, PROCESSAR_ORCAMENTO);
         MDC.put(OS_ID, id.toString());
-        MDC.put("aprovado", String.valueOf(dto.aprovado()));
+        MDC.put("aprovado", String.valueOf(dto.aprovado));
 
         try {
-            log.info("Processando resposta de orçamento: id={}, aprovado={}", id, dto.aprovado());
+            log.info("Processando resposta de orçamento: id={}, aprovado={}", id, dto.aprovado);
 
             OrdemServico os = repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
@@ -278,7 +278,7 @@ public class OrdemServicoService {
             }
 
             StatusOrdemServico statusAnterior = os.getStatus();
-            if (dto.aprovado()) {
+            if (dto.aprovado) {
                 os.setStatus(StatusOrdemServico.EM_EXECUCAO);
                 log.info("Orçamento aprovado: id={}, novoStatus=EM_EXECUCAO", id);
 
@@ -321,10 +321,10 @@ public class OrdemServicoService {
         Timer.Sample sample = Timer.start(meterRegistry);
         MDC.put(OPERATION, PROCESSAR_NOTIFICACAO_STATUS);
         MDC.put(OS_ID, id.toString());
-        MDC.put("novo_status", dto.novoStatus().name());
+        MDC.put("novo_status", dto.novoStatus.name());
 
         try {
-            log.info("Processando notificação de status: id={}, novoStatus={}", id, dto.novoStatus());
+            log.info("Processando notificação de status: id={}, novoStatus={}", id, dto.novoStatus);
 
             OrdemServico os = repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
@@ -335,12 +335,12 @@ public class OrdemServicoService {
             StatusOrdemServico statusAnterior = os.getStatus();
             MDC.put("status_anterior", statusAnterior.name());
 
-            os.setStatus(dto.novoStatus());
+            os.setStatus(dto.novoStatus);
             OrdemServico updated = repo.save(os);
 
-            log.info("Status atualizado via notificação: id={}, de={}, para={}", id, statusAnterior, dto.novoStatus());
+            log.info("Status atualizado via notificação: id={}, de={}, para={}", id, statusAnterior, dto.novoStatus);
 
-            recordStatusTransition(updated, statusAnterior, dto.novoStatus());
+            recordStatusTransition(updated, statusAnterior, dto.novoStatus);
 
             processarNotificacaoStatusSuccessCounter.increment();
 
