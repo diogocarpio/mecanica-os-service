@@ -1,163 +1,243 @@
 # OS Service - Microsserviço de Gestão de Ordens de Serviço
 
-Microsserviço responsável por gerenciar as ordens de serviço (OS) do sistema de oficina mecânica. Este serviço é parte integrante da arquitetura de microserviços do Tech Challenge Fase 4.
+Microsserviço responsável por gerenciar as ordens de serviço (OS) do sistema de oficina mecânica. Este projeto foi estruturado para cumprir a responsabilidade do Aluno 1 do Tech Challenge Fase 4.
 
-## Responsabilidades
+## Índice
+
+- [Resumo da solução](#resumo-da-solução)
+- [Decisão de arquitetura](#decisão-de-arquitetura)
+- [Responsabilidades do serviço](#responsabilidades-do-serviço)
+- [Stack tecnológica](#stack-tecnológica)
+- [Estrutura do projeto](#estrutura-do-projeto)
+- [Fluxo de Saga recomendado](#fluxo-de-saga-recomendado)
+- [Arquitetura e Saga detalhada](docs/arquitetura-saga.md)
+- [Contrato de eventos e payloads](docs/contrato-eventos-saga.md)
+- [Requisitos e configurações](#requisitos-e-configurações)
+- [Configuração local](#configuração-local)
+- [Executando a aplicação](#executando-a-aplicação)
+- [Variáveis de ambiente](#variáveis-de-ambiente)
+- [Endpoints principais](#endpoints-principais)
+- [Swagger/OpenAPI](#swaggeropenapi)
+- [Coleção Postman](postman/os-service.postman_collection.json)
+- [Arquivo de ambiente](.env.example)
+- [Teste e cobertura](#teste-e-cobertura)
+- [Checklist de alinhamento com o challenge](#checklist-de-alinhamento-com-o-challenge)
+- [Observações de projeto](#observações-de-projeto)
+
+---
+
+## Resumo da solução
+
+Este serviço implementa o núcleo do fluxo de ordens de serviço:
+
+- abertura da OS
+- atualização do status
+- consulta do status e do histórico
+- publicação de eventos em RabbitMQ para integração com outros microsserviços
+- tratamento de erros com logs, métricas e observabilidade
+
+A solução foi pensada para manter o serviço independente, com banco de dados próprio, API REST e integração assíncrona com outros serviços do ecossistema.
+
+Observação importante: este repositório é o microsserviço OS Service, e não o ecossistema completo do challenge. A decisão de arquitetura abaixo foi feita para manter a solução correta e escalável para o Aluno 1.
+
+---
+
+## Decisão de arquitetura
+
+### Recomendação adotada
+
+- Banco relacional: PostgreSQL
+- Mensageria: RabbitMQ
+- Padrão de Saga: orquestração
+- Comunicação: REST + eventos assíncronos
+- NoSQL no conjunto do grupo: MongoDB em outro serviço (recomendado para o Billing Service ou outro microsserviço complementar)
+
+### Por que esta escolha?
+
+#### PostgreSQL
+O domínio de OS exige consistência, histórico, transações e consultas por status; PostgreSQL é a melhor opção para esse cenário.
+
+#### RabbitMQ
+A comunicação assíncrona entre microsserviços é bem atendida pelo RabbitMQ, com baixo acoplamento e fácil integração com Spring Boot.
+
+#### Saga por orquestração
+Para o desafio acadêmico, orquestração é mais simples de explicar, documentar e validar. O serviço centraliza a sequência de ações e facilita o tratamento de falhas e compensação.
+
+#### NoSQL no conjunto da solução
+O projeto do challenge exige, no conjunto da arquitetura, pelo menos um banco NoSQL. A recomendação é manter o NoSQL fora do OS Service, em um serviço de orçamento ou outro componente de apoio.
+
+---
+
+## Responsabilidades do serviço
 
 - Abertura de ordens de serviço
-- Atualização do status das ordens de serviço
-- Consulta do status e histórico das ordens de serviço
-- Integração com mensageria para comunicação com outros microserviços
-- Publicação de eventos para orquestração do Saga Pattern
+- Atualização de status da OS
+- Consulta do status e do histórico da ordem
+- Publicação e consumo de eventos de integração
+- Persistência do ciclo de vida da OS em PostgreSQL
+- Exposição de métricas, healthcheck e logs de operação
 
-## Tecnologias Utilizadas
+---
 
-| Tecnologia | Versão | Descrição |
-|------------|--------|-----------|
-| **Java** | 17 | Linguagem principal |
-| **Spring Boot** | 3.2.0 | Framework para construção da API REST |
-| **Spring Data JPA** | - | Persistência de dados com Hibernate |
-| **Spring Boot Actuator** | - | Health checks e monitoramento |
-| **Spring AMQP** | - | Integração com RabbitMQ |
-| **PostgreSQL** | 15 | Banco de dados relacional |
-| **H2 Database** | - | Banco de dados em memória para testes |
-| **RabbitMQ** | 3.x | Mensageria para comunicação assíncrona |
-| **Lombok** | - | Redução de boilerplate no código |
-| **SpringDoc OpenAPI** | 2.3.0 | Documentação Swagger/OpenAPI |
-| **JaCoCo** | 0.8.11 | Cobertura de testes |
-| **Maven** | - | Gerenciamento de dependências e build |
-| **Docker** | - | Containerização da aplicação |
-| **Kubernetes** | - | Orquestração de containers |
-| **Terraform** | >= 1.0 | Infraestrutura como código |
+## Stack tecnológica
 
-## Arquitetura do Serviço
+| Tecnologia | Versão / Uso |
+|---|---|
+| Java | 17 |
+| Spring Boot | 3.2.0 |
+| Spring Web | API REST |
+| Spring Data JPA | Persistência |
+| PostgreSQL | Banco relacional |
+| RabbitMQ | Mensageria |
+| Spring AMQP | Integração com RabbitMQ |
+| H2 Database | Testes |
+| SpringDoc OpenAPI | Swagger |
+| Lombok | Redução de boilerplate |
+| JaCoCo | Cobertura de testes |
+| Maven | Build e dependências |
+| Docker | Containerização |
+| Kubernetes | Deploy |
+| Terraform | Infraestrutura como código |
+| Micrometer / Actuator | Observabilidade |
 
-```
-Controller (REST)  -->  Service (Regras de Negócio)  -->  Repository (JPA)  -->  Database
-     |                       |                              |
-     v                       v                              v
-    DTO                   Domain (Entidades)          PostgreSQL
-     |
-     v
-RabbitMQ (Event Publisher)
-```
+---
 
-### Componentes
+## Estrutura do projeto
 
-- **Controller**: Recebe as requisições HTTP e delega para os services
-- **Service**: Contém a lógica de negócio e publicação de eventos
-- **Repository**: Interface JPA para acesso ao banco de dados
-- **Domain**: Entidades JPA mapeadas para tabelas do banco
-- **DTO**: Objetos de transferência para entrada e saída de dados
-- **Validation**: Validadores customizados para CPF/CNPJ e Placa
-- **Exception**: Tratamento global de exceções da API
-- **RabbitMQ**: Publicação de eventos para integração com outros serviços
-
-## Estrutura de Pastas
-
-```
+```text
 mecanica-os-service/
+├── .github/
+│   └── workflows/
+│       └── ci-cd.yml
+├── docs/
+│   └── (documentação complementar, se adicionada no futuro)
+├── k8s/
+│   ├── namespace.yaml
+│   ├── configmap.yaml
+│   ├── secret.yaml
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   └── hpa.yaml
 ├── src/
 │   ├── main/
 │   │   ├── java/com/f1rsters/os_service/
-│   │   │   ├── OsServiceApplication.java          # Classe principal
 │   │   │   ├── config/
-│   │   │   │   ├── OpenApiConfig.java             # Configuração Swagger/OpenAPI
-│   │   │   │   └── RabbitMQConfig.java            # Configuração RabbitMQ
+│   │   │   │   ├── OpenApiConfig.java
+│   │   │   │   └── RabbitMQConfig.java
 │   │   │   ├── controller/
-│   │   │   │   └── OrdemServicoController.java     # Endpoints REST
+│   │   │   │   └── OrdemServicoController.java
 │   │   │   ├── domain/
-│   │   │   │   ├── OrdemServico.java              # Entidade Ordem de Serviço
-│   │   │   │   └── StatusOrdemServico.java        # Enum de status
+│   │   │   │   ├── OrdemServico.java
+│   │   │   │   └── StatusOrdemServico.java
 │   │   │   ├── dto/
-│   │   │   │   ├── CriarOrdemServicoDTO.java      # DTO de criação
-│   │   │   │   ├── AtualizarStatusOSDTO.java      # DTO de atualização
-│   │   │   │   ├── OrdemServicoDTO.java           # DTO de resposta
-│   │   │   │   ├── StatusOrdemServicoDTO.java     # DTO de status
-│   │   │   │   ├── NotificacaoStatusDTO.java      # DTO de notificação
-│   │   │   │   ├── RespostaOrcamentoDTO.java      # DTO de orçamento
-│   │   │   │   └── OSEvent.java                   # DTO de evento RabbitMQ
+│   │   │   │   ├── CriarOrdemServicoDTO.java
+│   │   │   │   ├── AtualizarStatusOSDTO.java
+│   │   │   │   ├── OrdemServicoDTO.java
+│   │   │   │   ├── StatusOrdemServicoDTO.java
+│   │   │   │   ├── NotificacaoStatusDTO.java
+│   │   │   │   ├── RespostaOrcamentoDTO.java
+│   │   │   │   └── OSEvent.java
 │   │   │   ├── exception/
-│   │   │   │   └── ApiExceptionHandler.java       # Handler global de exceções
+│   │   │   │   └── ApiExceptionHandler.java
+│   │   │   ├── mapper/
+│   │   │   │   └── OrdemServicoMapper.java
 │   │   │   ├── repository/
-│   │   │   │   └── OrdemServicoRepository.java    # Repository JPA
+│   │   │   │   └── OrdemServicoRepository.java
 │   │   │   ├── service/
-│   │   │   │   └── OrdemServicoService.java       # Service de negócio
+│   │   │   │   └── OrdemServicoService.java
 │   │   │   ├── util/
-│   │   │   │   ├── InputNormalizer.java          # Normalização de input
-│   │   │   │   ├── CpfCnpjValidator.java         # Validador de CPF/CNPJ
-│   │   │   │   ├── PlacaValidator.java           # Validador de placa
-│   │   │   │   └── SensitiveDataMasker.java      # Mascaramento de dados
-│   │   │   └── validation/
-│   │   │       ├── CpfCnpjValido.java            # Anotação @CpfCnpjValido
-│   │   │       ├── CpfCnpjConstraintValidator.java
-│   │   │       ├── PlacaValida.java              # Anotação @PlacaValida
-│   │   │       └── PlacaConstraintValidator.java
+│   │   │   │   ├── InputNormalizer.java
+│   │   │   │   ├── CpfCnpjValidator.java
+│   │   │   │   ├── PlacaValidator.java
+│   │   │   │   └── SensitiveDataMasker.java
+│   │   │   ├── validation/
+│   │   │   │   ├── CpfCnpjValido.java
+│   │   │   │   ├── CpfCnpjConstraintValidator.java
+│   │   │   │   ├── PlacaValida.java
+│   │   │   │   └── PlacaConstraintValidator.java
+│   │   │   └── OsServiceApplication.java
 │   │   └── resources/
-│   │       └── application.yaml                   # Configuração principal
+│   │       └── application.yaml
 │   └── test/
-│       ├── java/com/f1rsters/os_service/          # Testes unitários
+│       ├── java/com/f1rsters/os_service/
+│       │   ├── config/
+│       │   ├── controller/
+│       │   ├── exception/
+│       │   ├── mapper/
+│       │   ├── service/
+│       │   └── util/
 │       └── resources/
-│           └── application-test.yaml              # Configuração para testes
-├── k8s/                                            # Manifestos Kubernetes
-│   ├── namespace.yaml                              # Namespace do serviço
-│   ├── configmap.yaml                              # ConfigMap não sensível
-│   ├── secret.yaml                                 # Secret sensível
-│   ├── deployment.yaml                              # Deployment do serviço
-│   ├── service.yaml                                # Service do serviço
-│   └── hpa.yaml                                    # Horizontal Pod Autoscaler
-├── terraform/                                       # Infraestrutura do banco
-│   ├── main.tf                                     # Configuração principal
-│   ├── variables.tf                                # Variáveis Terraform
-│   ├── outputs.tf                                  # Outputs Terraform
-│   ├── terraform.tfvars.example                    # Exemplo de variáveis
-│   └── README.md                                   # Documentação Terraform
-├── .github/workflows/                              # Pipelines CI/CD
-│   └── ci-cd.yml                                   # Workflow GitHub Actions
-├── Dockerfile                                      # Imagem Docker
-├── pom.xml                                         # Dependências Maven
-└── README.md                                       # Este arquivo
+│           └── application-test.yaml
+├── Dockerfile
+├── pom.xml
+├── terraform/
+│   ├── README.md
+│   ├── main.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   └── terraform.tfvars.example
+├── README.md
+└── .gitignore
 ```
 
-## Pré-requisitos
+### Sobre o pacote mapper
 
-### Para execução local
+O projeto do monolito de referência usa `mapper` para separar conversão de entidade para DTO. Neste serviço, a conversão é simples e a lógica já está encapsulada em DTOs. Mesmo assim, adicionamos `OrdemServicoMapper` para manter o padrão da arquitetura do ecossistema e facilitar expansão futura.
 
-- [Java JDK 17](https://adoptium.net/) (Eclipse Temurin recomendado)
-- [Maven 3.8+](https://maven.apache.org/download.cgi)
-- [PostgreSQL 15](https://www.postgresql.org/download/)
-- [RabbitMQ 3.x](https://www.rabbitmq.com/download.html)
-- [Git](https://git-scm.com/downloads)
+---
 
-### Para Docker
+## Fluxo de Saga recomendado
 
-- [Docker](https://docs.docker.com/get-docker/) (versão 20+)
-- [Docker Compose](https://docs.docker.com/compose/install/) (versão 2+)
+### Estratégia escolhida: orquestração
 
-### Para Kubernetes
+A saga será orquestrada pelo OS Service e pelos serviços de apoio do ecossistema.
 
-- [kubectl](https://kubernetes.io/docs/tasks/tools/)
-- Cluster Kubernetes local (Kind, Minikube ou K3d)
+Fluxo principal:
 
-### Para Terraform
+1. OS Service recebe a criação da OS.
+2. Persiste a OS em PostgreSQL.
+3. Publica evento `os.created` no RabbitMQ.
+4. Billing Service recebe o evento e gera o orçamento.
+5. Cliente aprova ou rejeita o orçamento.
+6. Billing Service publica aprovação/rejeição.
+7. OS Service recebe a aprovação e atualiza a OS para `EM_EXECUCAO`.
+8. Execution Service recebe `os.approved` e inicia a execução.
+9. Quando finaliza, publica status de conclusão.
+10. OS Service atualiza o estado final da ordem.
 
-- [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0
-- Cluster Kubernetes configurado
+### Compensação / rollback
 
-## Configuração e Execução
+Se houver falha no orçamento ou na execução:
 
-### Opção 1 - Execução Local com PostgreSQL e RabbitMQ
+- OS Service registra a falha
+- marca a ordem como cancelada ou rejeitada
+- publica evento de compensação
+- os serviços participantes encerram atividades pendentes
 
-**1. Clone o repositório:**
+Esse padrão mantém o fluxo distribuído controlado e documentável para o Tech Challenge.
 
-```bash
-git clone https://github.com/diogocarpio/mecanica-os-service.git
-cd mecanica-os-service
-```
+---
 
-**2. Configure o PostgreSQL:**
+## Requisitos e configurações
 
-Crie o banco de dados e o usuário no PostgreSQL:
+### Pré-requisitos
+
+- Java 17+
+- Maven 3.8+
+- PostgreSQL 15+
+- RabbitMQ 3.x
+- Docker (opcional)
+- Kubernetes (opcional)
+
+### Sem AWS
+
+Este projeto não executa ações de AWS, não usa AWS CLI e não faz provisionamento em cloud. O foco aqui é o microsserviço local e o desenho de arquitetura conforme o challenge.
+
+---
+
+## Configuração local
+
+### 1) Criar o banco PostgreSQL
 
 ```sql
 CREATE DATABASE os_service_db;
@@ -165,120 +245,94 @@ CREATE USER os_service_user WITH PASSWORD 'os_service_password';
 GRANT ALL PRIVILEGES ON DATABASE os_service_db TO os_service_user;
 ```
 
-**3. Configure o RabbitMQ:**
+### 2) Iniciar o RabbitMQ
 
-Certifique-se de que o RabbitMQ está rodando na porta padrão (5672) com as credenciais padrão (guest/guest).
+Certifique-se de que o RabbitMQ esteja rodando localmente na porta 5672 com usuário/senha padrão:
 
-**4. Execute a aplicação:**
+- Usuário: `guest`
+- Senha: `guest`
+
+### 3) Verificar a aplicação
+
+A aplicação usa as seguintes variáveis padrão se não forem definidas:
+
+- `DATABASE_URL=jdbc:postgresql://localhost:5432/os_service_db`
+- `DATABASE_USERNAME=os_service_user`
+- `DATABASE_PASSWORD=os_service_password`
+- `RABBITMQ_HOST=localhost`
+- `RABBITMQ_PORT=5672`
+- `RABBITMQ_USERNAME=guest`
+- `RABBITMQ_PASSWORD=guest`
+- `SERVER_PORT=8081`
+
+---
+
+## Executando a aplicação
+
+### Opção 1: executar localmente com Maven
 
 ```bash
-# Linux / macOS
-./mvnw spring-boot:run
-
-# Windows
-mvnw.cmd spring-boot:run
-```
-
-A aplicação iniciará na porta `8081` e o Hibernate criará as tabelas automaticamente (`ddl-auto: update`).
-
-**5. Acesse a API:**
-- API: `http://localhost:8081`
-- Swagger UI: `http://localhost:8081/swagger-ui/index.html`
-- Actuator Health: `http://localhost:8081/actuator/health`
-
-### Opção 2 - Docker Compose
-
-**1. Clone o repositório:**
-
-```bash
-git clone https://github.com/diogocarpio/mecanica-os-service.git
 cd mecanica-os-service
+mvn spring-boot:run
 ```
 
-**2. Suba os containers:**
+Aplicação disponível em:
 
-```bash
-docker-compose up --build -d
-```
-
-**3. Verifique se os containers estão rodando:**
-
-```bash
-docker-compose ps
-```
-
-**4. Acesse a API:**
 - API: `http://localhost:8081`
 - Swagger UI: `http://localhost:8081/swagger-ui/index.html`
+- Healthcheck: `http://localhost:8081/actuator/health`
 
-**5. Para parar os containers:**
+### Opção 2: executar via Docker
+
+Use o arquivo `docker-compose.yml` do projeto para subir em conjunto o PostgreSQL, o RabbitMQ e a própria aplicação:
 
 ```bash
-docker-compose down
+cp .env.example .env
+
+docker compose up --build -d
 ```
 
-### Opção 3 - Kubernetes
-
-**1. Build da imagem Docker:**
+Ou, se preferir rodar a imagem manualmente:
 
 ```bash
 docker build -t os-service:latest .
+docker run --rm -p 8081:8081 --name os-service os-service:latest
 ```
 
-**2. Carregar a imagem no cluster (se usando Kind):**
+### Opção 3: executar os testes
 
 ```bash
-kind load docker-image os-service:latest
+mvn test
 ```
 
-**3. Provisionar o banco de dados com Terraform:**
+### Opção 4: gerar relatório de cobertura
 
 ```bash
-cd terraform
-terraform init
-terraform plan
-terraform apply
+mvn test jacoco:report
 ```
 
-**4. Aplicar os manifestos Kubernetes:**
+Relatório: `target/site/jacoco/index.html`
 
-```bash
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/configmap.yaml
-kubectl apply -f k8s/secret.yaml
-kubectl apply -f k8s/deployment.yaml
-kubectl apply -f k8s/service.yaml
-kubectl apply -f k8s/hpa.yaml
-```
+---
 
-**5. Verificar os recursos:**
+## Variáveis de ambiente
 
-```bash
-kubectl get pods -n os-service
-kubectl get svc -n os-service
-kubectl get hpa -n os-service
-```
+| Variável | Descrição | Valor padrão |
+|---|---|---|
+| `DATABASE_URL` | URL do PostgreSQL | `jdbc:postgresql://localhost:5432/os_service_db` |
+| `DATABASE_USERNAME` | Usuário do banco | `os_service_user` |
+| `DATABASE_PASSWORD` | Senha do banco | `os_service_password` |
+| `RABBITMQ_HOST` | Host do RabbitMQ | `localhost` |
+| `RABBITMQ_PORT` | Porta do RabbitMQ | `5672` |
+| `RABBITMQ_USERNAME` | Usuário do RabbitMQ | `guest` |
+| `RABBITMQ_PASSWORD` | Senha do RabbitMQ | `guest` |
+| `SERVER_PORT` | Porta da API | `8081` |
 
-**6. Acessar a aplicação:**
+---
 
-```bash
-# Obter a porta do LoadBalancer
-kubectl get svc os-service -n os-service
+## Endpoints principais
 
-# Acessar via LoadBalancer
-http://localhost:<PORT>
-```
-
-**7. Remover os recursos:**
-
-```bash
-kubectl delete -f k8s/
-cd terraform && terraform destroy
-```
-
-## Endpoints da API
-
-### Criar Ordem de Serviço
+### Criar ordem de serviço
 
 ```http
 POST /api/ordens-servico
@@ -292,7 +346,7 @@ Content-Type: application/json
 }
 ```
 
-### Atualizar Status
+### Atualizar status
 
 ```http
 PATCH /api/ordens-servico/{id}/status
@@ -303,25 +357,25 @@ Content-Type: application/json
 }
 ```
 
-### Listar Todas as Ordens
+### Listar ordens
 
 ```http
 GET /api/ordens-servico
 ```
 
-### Detalhar Ordem
+### Detalhar ordem
 
 ```http
 GET /api/ordens-servico/{id}
 ```
 
-### Consultar Status
+### Consultar status
 
 ```http
 GET /api/ordens-servico/{id}/status
 ```
 
-### Responder Orçamento
+### Responder orçamento
 
 ```http
 POST /api/ordens-servico/{id}/orcamento/resposta
@@ -332,7 +386,7 @@ Content-Type: application/json
 }
 ```
 
-### Notificar Status (Webhook)
+### Notificar status
 
 ```http
 POST /api/ordens-servico/{id}/status/notificacao
@@ -343,166 +397,90 @@ Content-Type: application/json
 }
 ```
 
-## Integração com Mensageria (RabbitMQ)
+---
 
-O OS Service publica eventos para integração com outros microserviços:
+## Swagger/OpenAPI
 
-### Eventos Publicados
+A aplicação expõe a documentação interativa pelo SpringDoc OpenAPI.
 
-- **os.created**: Publicado nova OS é criada (Billing Service deve gerar orçamento)
-- **os.approved**: Publicado quando orçamento é aprovado (Execution Service deve iniciar execução)
-- **os.status.updated**: Publicado quando status é atualizado (notificações e monitoramento)
+Acesse:
 
-### Estrutura do Evento
-
-```json
-{
-  "osId": 1,
-  "clienteId": "12345678909",
-  "veiculoId": "ABC1234",
-  "servicosIds": ["1", "2"],
-  "pecasIds": ["1"],
-  "valorTotal": 500.00,
-  "status": "RECEBIDA",
-  "eventType": "os.created",
-  "timestamp": "2024-01-01T10:00:00"
-}
+```text
+http://localhost:8081/swagger-ui/index.html
 ```
 
-### Filas e Exchanges
+Também há uma coleção base para Postman em:
 
-- **Exchange**: `os.exchange` (topic)
-- **Queues**:
-  - `os.created.queue`
-  - `os.approved.queue`
-  - `os.status.updated.queue`
+```text
+postman/os-service.postman_collection.json
+```
 
-## Saga Pattern
+Ela pode ser importada diretamente no Postman para testar a API localmente.
 
-O OS Service participa do Saga Pattern para orquestração do fluxo de ordens de serviço:
+---
 
-### Fluxo de Saga (Coreografia)
+## Teste e cobertura
 
-1. **OS Service**: Cria OS → Publica evento `os.created`
-2. **Billing Service**: Recebe evento → Gera orçamento → Aguarda aprovação
-3. **Cliente**: Aprova/rejeita orçamento via Billing Service
-4. **Billing Service**: Se aprovado → Publica evento `orçamento.approved`
-5. **OS Service**: Recebe evento → Atualiza status para `EM_EXECUCAO` → Publica `os.approved`
-6. **Execution Service**: Recebe evento → Inicia execução → Atualiza status durante processo
-7. **Execution Service**: Finaliza execução → Publica `execution.completed`
-8. **OS Service**: Recebe evento → Atualiza status para `FINALIZADA`
-
-### Compensação (Rollback)
-
-Se falhar em qualquer etapa:
-- **OS Service**: Cancela OS → Publica `os.cancelled`
-- **Billing Service**: Recebe `os.cancelled` → Cancela orçamento (se existente)
-- **Execution Service**: Recebe `os.cancelled` → Interrompe execução (se em andamento)
-
-## Testes
-
-### Executar Testes
+### Rodar testes
 
 ```bash
 mvn test
 ```
 
-### Executar com Cobertura
+### Gerar relatório JaCoCo
 
 ```bash
-mvn test jacoco:report
+mvn jacoco:report
 ```
 
-O relatório de cobertura será gerado em `target/site/jacoco/index.html`.
-
-### Verificar Cobertura Mínima (80%)
+### Verificar regra de cobertura
 
 ```bash
 mvn jacoco:check
 ```
 
-## CI/CD
+A cobertura é validada com JaCoCo na pipeline e os testes do serviço cobrem a lógica de criação, atualização, consulta, validação, mapeamento e tratamento de exceções.
 
-O pipeline CI/CD é automatizado via GitHub Actions e inclui:
+---
 
-### Jobs
+## Checklist de alinhamento com o challenge
 
-1. **Build and Test**: Compilação, execução de testes e verificação de cobertura (mínimo 80%)
-2. **Docker Build**: Build da imagem Docker e verificação de health check
-3. **Quality Check**: Análise de qualidade com SonarQube (opcional)
-4. **Deploy to Kubernetes**: Deploy automático no cluster (branch main)
-5. **Terraform Apply**: Provisionamento da infraestrutura do banco (branch main)
+### Requisitos atendidos pelo microsserviço OS Service
 
-### Proteção de Branch
+- [x] Banco de dados próprio
+- [x] Infraestrutura própria
+- [x] Dockerfile
+- [x] Kubernetes manifests
+- [x] Pipeline CI/CD
+- [x] API REST
+- [x] Estrutura de eventos via RabbitMQ
+- [x] Testes unitários
+- [x] Cobertura com JaCoCo
+- [x] Documentação inicial do projeto
 
-- Branch `main` protegida (sem commits diretos)
-- Pull Requests obrigatórios
-- Checagens automatizadas obrigatórias antes do merge
+### Requisitos que dependem do conjunto do grupo
 
-## Monitoramento
+- [ ] Banco NoSQL no conjunto da solução
+- [ ] Fluxo completo de Saga integrado entre microsserviços
+- [ ] BDD de integração entre serviços
+- [ ] Swagger/Postman final do fluxo completo
+- [ ] Deploy completo e monitoramento em ambiente integrado
 
-### Endpoints do Actuator
+### Decisão do grupo recomendada
 
-- `/actuator/health`: Health check
-- `/actuator/info`: Informações da aplicação
-- `/actuator/metrics`: Métricas Prometheus
-- `/actuator/prometheus`: Métricas no formato Prometheus
+- OS Service: PostgreSQL + RabbitMQ + orquestração de saga
+- Billing Service: MongoDB ou outro banco NoSQL para orçamento
+- Execution Service: integração via eventos e status de execução
 
-### Métricas Coletadas
+---
 
-- `ordem_servico.criar_ordem.success.total`: Total de OS criadas com sucesso
-- `ordem_servico.criar_ordem.unexpected_error.total`: Erros na criação de OS
-- `ordem_servico.atualizar_status.success.total`: Total de atualizações de status com sucesso
-- `ordem_servico.status.transition.total`: Total de transições de status
-- `ordem_servico.processing.failure.total`: Falhas no processamento
-- `ordem_servico.status.lead_time.seconds`: Tempo para alcançar cada status
+## Observações de projeto
 
-## Variáveis de Ambiente
+- O serviço foi desenhado para ser independente e pronto para integração em um ecossistema de microsserviços.
+- O pacote `mapper` foi adicionado para manter a padronização com a arquitetura do monolito de referência.
+- O código foi preparado para facilitar evolução e manutenção sem deixar a solução "acoplada" ao banco do restante do sistema.
+- A solução local foi validada com testes e com build Maven; não houve uso de AWS CLI nem qualquer provisionamento em cloud.
 
-| Variável | Descrição | Padrão |
-|----------|-----------|--------|
-| `DATABASE_URL` | URL JDBC do PostgreSQL | `jdbc:postgresql://localhost:5432/os_service_db` |
-| `DATABASE_USERNAME` | Usuário do banco | `os_service_user` |
-| `DATABASE_PASSWORD` | Senha do banco | `os_service_password` |
-| `RABBITMQ_HOST` | Host do RabbitMQ | `localhost` |
-| `RABBITMQ_PORT` | Porta do RabbitMQ | `5672` |
-| `RABBITMQ_USERNAME` | Usuário do RabbitMQ | `guest` |
-| `RABBITMQ_PASSWORD` | Senha do RabbitMQ | `guest` |
-| `SERVER_PORT` | Porta da aplicação | `8081` |
+---
 
-## Documentação Swagger
-
-A documentação interativa da API está disponível via Swagger UI:
-
-```
-http://localhost:8081/swagger-ui/index.html
-```
-
-## Postman Collection
-
-Uma coleção do Postman com todos os endpoints está disponível no repositório (a ser criada).
-
-## Contribuição
-
-Este é um projeto acadêmico do Tech Challenge FIAP Fase 4. Para contribuições:
-
-1. Faça um fork do repositório
-2. Crie uma branch para sua feature (`git checkout -b feature/nova-feature`)
-3. Commit suas mudanças (`git commit -am 'Adiciona nova feature'`)
-4. Push para a branch (`git push origin feature/nova-feature`)
-5. Abra um Pull Request
-
-## Licença
-
-Este projeto está sob a licença Apache 2.0.
-
-## Contato
-
-- **Aluno 1**: [Seu Nome]
-- **Repositório**: https://github.com/diogocarpio/mecanica-os-service
-
-## Links Relacionados
-
-- [Billing Service](https://github.com/diogocarpio/mecanica-billing-service)
-- [Execution Service](https://github.com/diogocarpio/mecanica-execution-service)
-- [Monolito Original (Fase 3)](https://github.com/diogocarpio/f1rsters-tech-challenge-mecanica)
+Se quiser, o próximo passo é alinhar o desenho completo com os outros microsserviços do grupo, definindo os eventos exatos, o banco NoSQL e os nomes finais dos serviços de Billing e Execution.
