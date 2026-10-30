@@ -14,14 +14,24 @@ class OrdemServicoDTOTest {
     @Test
     void dto_ShouldAcceptFields() {
         OrdemServicoDTO dto = new OrdemServicoDTO();
-        dto.id = 1L;
-        dto.clienteId = "12345678909";
-        dto.veiculoId = "ABC1234";
-        dto.status = StatusOrdemServico.RECEBIDA;
-        dto.valorTotal = BigDecimal.valueOf(1000.0);
-        dto.criadoEm = LocalDateTime.now();
-        
-        assertEquals(1L, dto.id);
-        assertEquals(StatusOrdemServico.RECEBIDA, dto.status);
+        dto.setId(1L);
+        dto.setClienteId("12345678909");
+        dto.setVeiculoId("ABC1234");
+        dto.setServicosIds(List.of("S1", "S2"));
+        dto.setPecasIds(List.of("P1"));
+        dto.setStatus(StatusOrdemServico.RECEBIDA);
+        dto.setValorTotal(BigDecimal.valueOf(1000.0));
+        dto.setCriadoEm(LocalDateTime.now());
+        dto.setAtualizadoEm(LocalDateTime.now());
+
+        assertEquals(1L, dto.getId());
+        assertEquals("12345678909", dto.getClienteId());
+        assertEquals("ABC1234", dto.getVeiculoId());
+        assertEquals(StatusOrdemServico.RECEBIDA, dto.getStatus());
+        assertEquals(BigDecimal.valueOf(1000.0), dto.getValorTotal());
+        assertEquals(List.of("S1", "S2"), dto.getServicosIds());
+        assertEquals(List.of("P1"), dto.getPecasIds());
+        assertNotNull(dto.getCriadoEm());
+        assertNotNull(dto.getAtualizadoEm());
     }
 }

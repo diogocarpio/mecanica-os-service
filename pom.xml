@@ -140,6 +140,10 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
+                            <excludes>
+                                <exclude>com/f1rsters/os_service/domain/OrdemServico.class</exclude>
+                                <exclude>com/f1rsters/os_service/dto/*.class</exclude>
+                            </excludes>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>
@@ -147,7 +151,7 @@
                                         <limit>
                                             <counter>INSTRUCTION</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0.80</minimum>
+                                            <minimum>1.0</minimum>
                                         </limit>
                                     </limits>
                                 </rule>

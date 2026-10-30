@@ -11,14 +11,14 @@ class CriarOrdemServicoDTOTest {
     @Test
     void dto_ShouldAcceptFields() {
         CriarOrdemServicoDTO dto = new CriarOrdemServicoDTO();
-        dto.cpfCnpjCliente = "12345678909";
-        dto.placaVeiculo = "ABC1234";
-        dto.servicosIds = List.of("1", "2");
-        dto.pecasIds = List.of("1");
-        
-        assertEquals("12345678909", dto.cpfCnpjCliente);
-        assertEquals("ABC1234", dto.placaVeiculo);
-        assertEquals(2, dto.servicosIds.size());
-        assertEquals(1, dto.pecasIds.size());
+        dto.setCpfCnpjCliente("12345678909");
+        dto.setPlacaVeiculo("ABC1234");
+        dto.setServicosIds(List.of("1", "2"));
+        dto.setPecasIds(List.of("1"));
+
+        assertEquals("12345678909", dto.getCpfCnpjCliente());
+        assertEquals("ABC1234", dto.getPlacaVeiculo());
+        assertEquals(2, dto.getServicosIds().size());
+        assertEquals(1, dto.getPecasIds().size());
     }
 }

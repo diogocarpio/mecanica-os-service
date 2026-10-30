@@ -14,11 +14,11 @@ class StatusOrdemServicoDTOTest {
         Long id = 1L;
         StatusOrdemServico status = StatusOrdemServico.RECEBIDA;
         LocalDateTime criadoEm = LocalDateTime.now();
-        
+
         StatusOrdemServicoDTO dto = StatusOrdemServicoDTO.from(id, status, criadoEm);
-        
-        assertEquals(id, dto.osId);
-        assertEquals(status, dto.status);
-        assertEquals(criadoEm, dto.criadoEm);
+
+        assertEquals(id, dto.getOsId());
+        assertEquals(status, dto.getStatus());
+        assertEquals(criadoEm, dto.getCriadoEm());
     }
 }

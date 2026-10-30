@@ -32,6 +32,7 @@ class SensitiveDataMaskerTest {
     @Test
     void maskCpfCnpj_DeveRetornarAsteriscosParaCurto() {
         assertEquals("***", SensitiveDataMasker.maskCpfCnpj("123"));
+        assertEquals("***", SensitiveDataMasker.maskCpfCnpj("1234"));
         assertEquals("***", SensitiveDataMasker.maskCpfCnpj(""));
     }
 
@@ -39,6 +40,13 @@ class SensitiveDataMaskerTest {
     void maskPlaca_DeveMascararPlaca() {
         String result = SensitiveDataMasker.maskPlaca("ABC1234");
         assertEquals("AB**4", result);
+    }
+
+    @Test
+    void maskPlaca_DeveRetornarAsteriscosParaCurto() {
+        assertEquals("***", SensitiveDataMasker.maskPlaca("ABC"));
+        assertEquals("***", SensitiveDataMasker.maskPlaca("AB"));
+        assertEquals("***", SensitiveDataMasker.maskPlaca(""));
     }
 
     @Test
@@ -52,9 +60,4 @@ class SensitiveDataMaskerTest {
         assertEquals("***", SensitiveDataMasker.maskPlaca(null));
     }
 
-    @Test
-    void maskPlaca_DeveRetornarAsteriscosParaCurto() {
-        assertEquals("***", SensitiveDataMasker.maskPlaca("AB"));
-        assertEquals("***", SensitiveDataMasker.maskPlaca(""));
-    }
 }

@@ -7,6 +7,18 @@ import static org.junit.jupiter.api.Assertions.*;
 class CpfCnpjValidatorTest {
 
     @Test
+    void isValid_DeveRetornarTrueParaCPFValido() {
+        assertTrue(CpfCnpjValidator.isValid("100.000.000-00"));
+        assertTrue(CpfCnpjValidator.isValid("10000000000"));
+    }
+
+    @Test
+    void isValid_DeveRetornarTrueParaCNPJValido() {
+        assertTrue(CpfCnpjValidator.isValid("01.000.000/0000-73"));
+        assertTrue(CpfCnpjValidator.isValid("01000000000073"));
+    }
+
+    @Test
     void isValid_DeveRetornarFalseParaCPFInvalido() {
         assertFalse(CpfCnpjValidator.isValid("123.456.789-00"));
         assertFalse(CpfCnpjValidator.isValid("111.111.111-11"));

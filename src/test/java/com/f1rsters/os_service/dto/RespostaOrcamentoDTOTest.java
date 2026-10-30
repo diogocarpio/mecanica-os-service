@@ -9,8 +9,8 @@ class RespostaOrcamentoDTOTest {
     @Test
     void dto_ShouldAcceptFields() {
         RespostaOrcamentoDTO dto = new RespostaOrcamentoDTO();
-        dto.aprovado = true;
-        
-        assertTrue(dto.aprovado);
+        dto.setAprovado(true);
+
+        assertTrue(dto.isAprovado());
     }
 }

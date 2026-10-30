@@ -38,6 +38,28 @@ class OrdemServicoControllerTest {
     private OrdemServicoService service;
 
     @Test
+    void criar_DeveRetornarOrdemCriada() throws Exception {
+        CriarOrdemServicoDTO dto = new CriarOrdemServicoDTO();
+        dto.setCpfCnpjCliente("10000000000");
+        dto.setPlacaVeiculo("ABC1234");
+        dto.setServicosIds(List.of("1", "2"));
+        dto.setPecasIds(List.of("10"));
+
+        OrdemServico os = new OrdemServico();
+        os.setId(1L);
+        os.setStatus(StatusOrdemServico.RECEBIDA);
+
+        when(service.criarOrdem(any(CriarOrdemServicoDTO.class))).thenReturn(os);
+
+        mockMvc.perform(post("/api/ordens-servico")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(dto)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.status").value("RECEBIDA"));
+    }
+
+    @Test
     void atualizarStatus_DeveRetornarOrdemAtualizada() throws Exception {
         Long id = 1L;
         AtualizarStatusOSDTO dto = new AtualizarStatusOSDTO();

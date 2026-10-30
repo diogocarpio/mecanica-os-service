@@ -10,8 +10,8 @@ class NotificacaoStatusDTOTest {
     @Test
     void dto_ShouldAcceptFields() {
         NotificacaoStatusDTO dto = new NotificacaoStatusDTO();
-        dto.novoStatus = StatusOrdemServico.EM_EXECUCAO;
-        
-        assertEquals(StatusOrdemServico.EM_EXECUCAO, dto.novoStatus);
+        dto.setNovoStatus(StatusOrdemServico.EM_EXECUCAO);
+
+        assertEquals(StatusOrdemServico.EM_EXECUCAO, dto.getNovoStatus());
     }
 }
