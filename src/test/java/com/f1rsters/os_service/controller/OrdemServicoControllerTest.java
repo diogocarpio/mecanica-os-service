@@ -145,6 +145,18 @@ class OrdemServicoControllerTest {
     }
 
     @Test
+    void consultarStatus_DeveRetornarNotFoundQuandoOsNaoExiste() throws Exception {
+        Long id = 999L;
+        when(service.consultarStatus(id))
+                .thenThrow(new com.f1rsters.os_service.exception.OrdemServicoNaoEncontradaException("OS não encontrada"));
+
+        mockMvc.perform(get("/api/ordens-servico/{id}/status", id))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("OS não encontrada"));
+    }
+
+    @Test
     void historico_DeveRetornarListaDeHistorico() throws Exception {
         Long id = 1L;
         com.f1rsters.os_service.domain.OrdemServicoHistorico h = new com.f1rsters.os_service.domain.OrdemServicoHistorico();

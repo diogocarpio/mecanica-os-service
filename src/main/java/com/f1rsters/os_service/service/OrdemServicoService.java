@@ -4,6 +4,7 @@ import com.f1rsters.os_service.domain.OrdemServico;
 import com.f1rsters.os_service.domain.OrdemServicoHistorico;
 import com.f1rsters.os_service.domain.StatusOrdemServico;
 import com.f1rsters.os_service.dto.*;
+import com.f1rsters.os_service.exception.OrdemServicoNaoEncontradaException;
 import com.f1rsters.os_service.repository.OrdemServicoHistoricoRepository;
 import com.f1rsters.os_service.repository.OrdemServicoRepository;
 import com.f1rsters.os_service.util.InputNormalizer;
@@ -173,7 +174,7 @@ public class OrdemServicoService {
             OrdemServico os = repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
                 log.error("OS não encontrada: id={}", id);
-                return new RuntimeException(OS_NAO_ENCONTRADA);
+                return new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA);
             });
 
             StatusOrdemServico statusAnterior = os.getStatus();
@@ -226,7 +227,7 @@ public class OrdemServicoService {
             OrdemServico os = repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
                 log.error("OS não encontrada: id={}", id);
-                return new RuntimeException(OS_NAO_ENCONTRADA);
+                return new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA);
             });
 
             log.info("OS encontrada: id={}, status={}", id, os.getStatus());
@@ -248,7 +249,7 @@ public class OrdemServicoService {
             OrdemServico os = repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
                 log.error("OS não encontrada: id={}", id);
-                return new RuntimeException(OS_NAO_ENCONTRADA);
+                return new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA);
             });
 
             log.info("Status consultado: id={}, status={}", id, os.getStatus());
@@ -273,7 +274,7 @@ public class OrdemServicoService {
             OrdemServico os = repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
                 log.error("OS não encontrada: id={}", id);
-                return new RuntimeException(OS_NAO_ENCONTRADA);
+                return new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA);
             });
 
             MDC.put("status_atual", os.getStatus().name());
@@ -339,7 +340,7 @@ public class OrdemServicoService {
             OrdemServico os = repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
                 log.error("OS não encontrada: id={}", id);
-                return new RuntimeException(OS_NAO_ENCONTRADA);
+                return new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA);
             });
 
             StatusOrdemServico statusAnterior = os.getStatus();
@@ -383,7 +384,7 @@ public class OrdemServicoService {
         MDC.put(OS_ID, id.toString());
 
         try {
-            OrdemServico os = repo.findById(id).orElseThrow(() -> new RuntimeException(OS_NAO_ENCONTRADA));
+            OrdemServico os = repo.findById(id).orElseThrow(() -> new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA));
             StatusOrdemServico statusAnterior = os.getStatus();
             validarTransicaoStatus(statusAnterior, StatusOrdemServico.CANCELADA, id);
 
@@ -406,7 +407,7 @@ public class OrdemServicoService {
             throw new IllegalArgumentException("Evento de saga inválido");
         }
 
-        OrdemServico os = repo.findById(event.getOsId()).orElseThrow(() -> new RuntimeException(OS_NAO_ENCONTRADA));
+        OrdemServico os = repo.findById(event.getOsId()).orElseThrow(() -> new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA));
         StatusOrdemServico statusAnterior = os.getStatus();
 
         switch (event.getEventType()) {
@@ -450,7 +451,7 @@ public class OrdemServicoService {
             repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
                 log.error("OS não encontrada: id={}", id);
-                return new RuntimeException(OS_NAO_ENCONTRADA);
+                return new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA);
             });
 
             List<OrdemServicoHistorico> historico = historicoRepo.findByOsIdOrderByCriadoEmAsc(id);

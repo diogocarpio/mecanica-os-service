@@ -41,6 +41,29 @@ class ApiExceptionHandlerTest {
     }
 
     @Test
+    void handleRuntimeException_DeveRetornarNotFoundQuandoOsNaoEncontrada() {
+        ApiExceptionHandler handler = new ApiExceptionHandler();
+
+        var response = handler.handleRuntimeException(new OrdemServicoNaoEncontradaException("OS não encontrada"));
+
+        assertEquals(HttpStatus.NOT_FOUND.value(), response.getStatusCode().value());
+        assertEquals("Not Found", ((Map<?, ?>) response.getBody()).get("error"));
+        assertEquals("OS não encontrada", ((Map<?, ?>) response.getBody()).get("message"));
+    }
+
+    @Test
+    void handleRuntimeException_DeveRetornarNotFoundQuandoCausaEncadeada() {
+        ApiExceptionHandler handler = new ApiExceptionHandler();
+        RuntimeException wrapped = new RuntimeException("Erro ao atualizar status da OS",
+                new OrdemServicoNaoEncontradaException("OS não encontrada"));
+
+        var response = handler.handleRuntimeException(wrapped);
+
+        assertEquals(HttpStatus.NOT_FOUND.value(), response.getStatusCode().value());
+        assertEquals("OS não encontrada", ((Map<?, ?>) response.getBody()).get("message"));
+    }
+
+    @Test
     void handleGenericException_ShouldReturnInternalServerErrorResponse() {
         ApiExceptionHandler handler = new ApiExceptionHandler();
 
