@@ -126,6 +126,9 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
+      - name: Build, test and verify coverage
+        run: mvn verify -B
+
       - name: Run SonarQube Scan
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -136,7 +139,6 @@ jobs:
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
             -Dsonar.token=${{ secrets.SONAR_TOKEN }} \
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
-        if: env.SONAR_TOKEN != ''
 
   deploy-k8s:
     name: Deploy to Kubernetes
