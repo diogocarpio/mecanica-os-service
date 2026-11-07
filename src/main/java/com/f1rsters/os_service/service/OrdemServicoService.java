@@ -1,11 +1,13 @@
 package com.f1rsters.os_service.service;
 
 import com.f1rsters.os_service.domain.OrdemServico;
+import com.f1rsters.os_service.domain.OrdemServicoHistorico;
 import com.f1rsters.os_service.domain.StatusOrdemServico;
 import com.f1rsters.os_service.dto.*;
+import com.f1rsters.os_service.exception.OrdemServicoNaoEncontradaException;
+import com.f1rsters.os_service.repository.OrdemServicoHistoricoRepository;
 import com.f1rsters.os_service.repository.OrdemServicoRepository;
 import com.f1rsters.os_service.util.InputNormalizer;
-import com.f1rsters.os_service.util.SensitiveDataMasker;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -17,7 +19,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -39,8 +40,10 @@ public class OrdemServicoService {
     private static final String OS_NAO_ENCONTRADA_REASON = "os_nao_encontrada";
     private static final String DETALHAR = "detalhar";
     private static final String CONSULTAR_STATUS = "consultar_status";
+    private static final String LISTAR_HISTORICO = "listar_historico";
 
     private final OrdemServicoRepository repo;
+    private final OrdemServicoHistoricoRepository historicoRepo;
     private final MeterRegistry meterRegistry;
     private final RabbitTemplate rabbitTemplate;
 
@@ -56,9 +59,11 @@ public class OrdemServicoService {
     private final Counter statusTransitionCounter;
 
     public OrdemServicoService(OrdemServicoRepository repo,
+                               OrdemServicoHistoricoRepository historicoRepo,
                                MeterRegistry meterRegistry,
                                RabbitTemplate rabbitTemplate) {
         this.repo = repo;
+        this.historicoRepo = historicoRepo;
         this.meterRegistry = meterRegistry;
         this.rabbitTemplate = rabbitTemplate;
 
@@ -122,6 +127,7 @@ public class OrdemServicoService {
             os.setValorTotal(valorTotal);
             os.setStatus(StatusOrdemServico.RECEBIDA);
             OrdemServico created = repo.save(os);
+            registrarHistorico(created.getId(), null, StatusOrdemServico.RECEBIDA, "CRIACAO", null);
 
             MDC.put(OS_ID, created.getId().toString());
             MDC.put("os_status", created.getStatus().name());
@@ -168,18 +174,20 @@ public class OrdemServicoService {
             OrdemServico os = repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
                 log.error("OS não encontrada: id={}", id);
-                return new RuntimeException(OS_NAO_ENCONTRADA);
+                return new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA);
             });
 
             StatusOrdemServico statusAnterior = os.getStatus();
             MDC.put("status_anterior", statusAnterior.name());
 
+            validarTransicaoStatus(statusAnterior, novoStatus, id);
             os.setStatus(novoStatus);
             OrdemServico updated = repo.save(os);
 
             log.info("Status atualizado com sucesso: id={}, de={}, para={}", id, statusAnterior, novoStatus);
 
             recordStatusTransition(updated, statusAnterior, novoStatus);
+            registrarHistorico(updated.getId(), statusAnterior, novoStatus, "ATUALIZACAO_MANUAL", null);
 
             atualizarStatusSuccessCounter.increment();
 
@@ -219,7 +227,7 @@ public class OrdemServicoService {
             OrdemServico os = repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
                 log.error("OS não encontrada: id={}", id);
-                return new RuntimeException(OS_NAO_ENCONTRADA);
+                return new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA);
             });
 
             log.info("OS encontrada: id={}, status={}", id, os.getStatus());
@@ -241,7 +249,7 @@ public class OrdemServicoService {
             OrdemServico os = repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
                 log.error("OS não encontrada: id={}", id);
-                return new RuntimeException(OS_NAO_ENCONTRADA);
+                return new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA);
             });
 
             log.info("Status consultado: id={}, status={}", id, os.getStatus());
@@ -258,15 +266,15 @@ public class OrdemServicoService {
         Timer.Sample sample = Timer.start(meterRegistry);
         MDC.put(OPERATION, PROCESSAR_ORCAMENTO);
         MDC.put(OS_ID, id.toString());
-        MDC.put("aprovado", String.valueOf(dto.aprovado()));
+        MDC.put("aprovado", String.valueOf(dto.aprovado));
 
         try {
-            log.info("Processando resposta de orçamento: id={}, aprovado={}", id, dto.aprovado());
+            log.info("Processando resposta de orçamento: id={}, aprovado={}", id, dto.aprovado);
 
             OrdemServico os = repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
                 log.error("OS não encontrada: id={}", id);
-                return new RuntimeException(OS_NAO_ENCONTRADA);
+                return new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA);
             });
 
             MDC.put("status_atual", os.getStatus().name());
@@ -278,7 +286,7 @@ public class OrdemServicoService {
             }
 
             StatusOrdemServico statusAnterior = os.getStatus();
-            if (dto.aprovado()) {
+            if (dto.aprovado) {
                 os.setStatus(StatusOrdemServico.EM_EXECUCAO);
                 log.info("Orçamento aprovado: id={}, novoStatus=EM_EXECUCAO", id);
 
@@ -291,6 +299,9 @@ public class OrdemServicoService {
             OrdemServico updated = repo.save(os);
 
             recordStatusTransition(updated, statusAnterior, updated.getStatus());
+            if (!statusAnterior.equals(updated.getStatus())) {
+                registrarHistorico(updated.getId(), statusAnterior, updated.getStatus(), "ORCAMENTO:APROVADO", null);
+            }
 
             processarOrcamentoSuccessCounter.increment();
 
@@ -321,26 +332,27 @@ public class OrdemServicoService {
         Timer.Sample sample = Timer.start(meterRegistry);
         MDC.put(OPERATION, PROCESSAR_NOTIFICACAO_STATUS);
         MDC.put(OS_ID, id.toString());
-        MDC.put("novo_status", dto.novoStatus().name());
+        MDC.put("novo_status", dto.novoStatus.name());
 
         try {
-            log.info("Processando notificação de status: id={}, novoStatus={}", id, dto.novoStatus());
+            log.info("Processando notificação de status: id={}, novoStatus={}", id, dto.novoStatus);
 
             OrdemServico os = repo.findById(id).orElseThrow(() -> {
                 MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
                 log.error("OS não encontrada: id={}", id);
-                return new RuntimeException(OS_NAO_ENCONTRADA);
+                return new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA);
             });
 
             StatusOrdemServico statusAnterior = os.getStatus();
             MDC.put("status_anterior", statusAnterior.name());
 
-            os.setStatus(dto.novoStatus());
+            os.setStatus(dto.novoStatus);
             OrdemServico updated = repo.save(os);
 
-            log.info("Status atualizado via notificação: id={}, de={}, para={}", id, statusAnterior, dto.novoStatus());
+            log.info("Status atualizado via notificação: id={}, de={}, para={}", id, statusAnterior, dto.novoStatus);
 
-            recordStatusTransition(updated, statusAnterior, dto.novoStatus());
+            recordStatusTransition(updated, statusAnterior, dto.novoStatus);
+            registrarHistorico(updated.getId(), statusAnterior, dto.novoStatus, "NOTIFICACAO_STATUS", null);
 
             processarNotificacaoStatusSuccessCounter.increment();
 
@@ -363,6 +375,111 @@ public class OrdemServicoService {
 
         } finally {
             MDC.clear();
+        }
+    }
+
+    @Transactional
+    public OrdemServico cancelarOrdem(Long id, String motivo) {
+        MDC.put(OPERATION, "cancelar_ordem");
+        MDC.put(OS_ID, id.toString());
+
+        try {
+            OrdemServico os = repo.findById(id).orElseThrow(() -> new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA));
+            StatusOrdemServico statusAnterior = os.getStatus();
+            validarTransicaoStatus(statusAnterior, StatusOrdemServico.CANCELADA, id);
+
+            os.setStatus(StatusOrdemServico.CANCELADA);
+            OrdemServico updated = repo.save(os);
+            publishOSEvent(updated, "os.cancelled");
+
+            recordStatusTransition(updated, statusAnterior, StatusOrdemServico.CANCELADA);
+            registrarHistorico(updated.getId(), statusAnterior, StatusOrdemServico.CANCELADA, "CANCELAMENTO", motivo);
+            log.info("OS cancelada com sucesso: id={}, motivo={}", id, motivo);
+            return updated;
+        } finally {
+            MDC.clear();
+        }
+    }
+
+    @Transactional
+    public OrdemServico processarEventoSaga(OSEvent event) {
+        if (event == null || event.getOsId() == null) {
+            throw new IllegalArgumentException("Evento de saga inválido");
+        }
+
+        OrdemServico os = repo.findById(event.getOsId()).orElseThrow(() -> new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA));
+        StatusOrdemServico statusAnterior = os.getStatus();
+
+        switch (event.getEventType()) {
+            case "orcamento.aprovado" -> {
+                validarTransicaoStatus(statusAnterior, StatusOrdemServico.EM_EXECUCAO, event.getOsId());
+                os.setStatus(StatusOrdemServico.EM_EXECUCAO);
+                publishOSEvent(os, "os.approved");
+            }
+            case "orcamento.rejeitado" -> {
+                validarTransicaoStatus(statusAnterior, StatusOrdemServico.CANCELADA, event.getOsId());
+                os.setStatus(StatusOrdemServico.CANCELADA);
+                publishOSEvent(os, "os.cancelled");
+            }
+            case "execution.completed" -> {
+                validarTransicaoStatus(statusAnterior, StatusOrdemServico.FINALIZADA, event.getOsId());
+                os.setStatus(StatusOrdemServico.FINALIZADA);
+                publishOSEvent(os, "os.status.updated");
+            }
+            case "os.cancelled" -> {
+                validarTransicaoStatus(statusAnterior, StatusOrdemServico.CANCELADA, event.getOsId());
+                os.setStatus(StatusOrdemServico.CANCELADA);
+            }
+            default -> log.warn("Evento de saga não mapeado: {}", event.getEventType());
+        }
+
+        OrdemServico updated = repo.save(os);
+        recordStatusTransition(updated, statusAnterior, updated.getStatus());
+        if (!statusAnterior.equals(updated.getStatus())) {
+            registrarHistorico(updated.getId(), statusAnterior, updated.getStatus(), "SAGA:" + event.getEventType(), null);
+        }
+        return updated;
+    }
+
+    public List<OrdemServicoHistorico> listarHistorico(Long id) {
+        MDC.put(OPERATION, LISTAR_HISTORICO);
+        MDC.put(OS_ID, id.toString());
+
+        try {
+            log.info("Consultando histórico da OS: id={}", id);
+
+            repo.findById(id).orElseThrow(() -> {
+                MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
+                log.error("OS não encontrada: id={}", id);
+                return new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA);
+            });
+
+            List<OrdemServicoHistorico> historico = historicoRepo.findByOsIdOrderByCriadoEmAsc(id);
+            log.info("Histórico consultado: id={}, registros={}", id, historico.size());
+            return historico;
+
+        } finally {
+            MDC.clear();
+        }
+    }
+
+    private void validarTransicaoStatus(StatusOrdemServico statusAnterior, StatusOrdemServico novoStatus, Long id) {
+        if (statusAnterior == null) {
+            throw new IllegalStateException("Status atual da OS não pode ser nulo");
+        }
+
+        boolean transicaoValida = switch (statusAnterior) {
+            case RECEBIDA -> novoStatus == StatusOrdemServico.DIAGNOSTICO || novoStatus == StatusOrdemServico.AGUARDANDO_APROVACAO || novoStatus == StatusOrdemServico.CANCELADA;
+            case DIAGNOSTICO -> novoStatus == StatusOrdemServico.AGUARDANDO_APROVACAO || novoStatus == StatusOrdemServico.CANCELADA;
+            case AGUARDANDO_APROVACAO -> novoStatus == StatusOrdemServico.EM_EXECUCAO || novoStatus == StatusOrdemServico.CANCELADA;
+            case EM_EXECUCAO -> novoStatus == StatusOrdemServico.FINALIZADA || novoStatus == StatusOrdemServico.CANCELADA;
+            case FINALIZADA -> novoStatus == StatusOrdemServico.ENTREGUE || novoStatus == StatusOrdemServico.CANCELADA;
+            case ENTREGUE -> false;
+            case CANCELADA -> false;
+        };
+
+        if (!transicaoValida) {
+            throw new IllegalStateException("Transição de status inválida para a OS " + id + ": " + statusAnterior + " -> " + novoStatus);
         }
     }
 
@@ -393,6 +510,20 @@ public class OrdemServicoService {
                 .tag(OS_ID, osId != null ? osId.toString() : "unknown")
                 .register(meterRegistry)
                 .increment();
+    }
+
+    private void registrarHistorico(Long osId,
+                                    StatusOrdemServico statusAnterior,
+                                    StatusOrdemServico statusNovo,
+                                    String origem,
+                                    String motivo) {
+        OrdemServicoHistorico historico = new OrdemServicoHistorico();
+        historico.setOsId(osId);
+        historico.setStatusAnterior(statusAnterior);
+        historico.setStatusNovo(statusNovo);
+        historico.setOrigem(origem);
+        historico.setMotivo(motivo);
+        historicoRepo.save(historico);
     }
 
     private void recordStatusTransition(OrdemServico os,

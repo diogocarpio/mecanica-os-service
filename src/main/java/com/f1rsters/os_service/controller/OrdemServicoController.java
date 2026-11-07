@@ -3,7 +3,6 @@ package com.f1rsters.os_service.controller;
 import com.f1rsters.os_service.dto.AtualizarStatusOSDTO;
 import com.f1rsters.os_service.dto.CriarOrdemServicoDTO;
 import com.f1rsters.os_service.dto.NotificacaoStatusDTO;
-import com.f1rsters.os_service.dto.OrdemServicoDTO;
 import com.f1rsters.os_service.dto.RespostaOrcamentoDTO;
 import com.f1rsters.os_service.dto.StatusOrdemServicoDTO;
 import com.f1rsters.os_service.domain.OrdemServico;
@@ -48,6 +47,11 @@ public class OrdemServicoController {
     @GetMapping("/{id}/status")
     public ResponseEntity<StatusOrdemServicoDTO> consultarStatus(@PathVariable Long id) {
         return ResponseEntity.ok(service.consultarStatus(id));
+    }
+
+    @GetMapping("/{id}/historico")
+    public List<com.f1rsters.os_service.domain.OrdemServicoHistorico> historico(@PathVariable Long id) {
+        return service.listarHistorico(id);
     }
 
     @PostMapping("/{id}/orcamento/resposta")
