@@ -135,7 +135,8 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: |
           mvn sonar:sonar \
-            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY || 'os-service' }} \
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY || 'os-service' }} \
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION || github.repository_owner }} \
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
             -Dsonar.token=${{ secrets.SONAR_TOKEN }} \
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
