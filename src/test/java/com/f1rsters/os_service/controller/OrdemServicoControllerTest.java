@@ -15,7 +15,6 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -143,6 +142,25 @@ class OrdemServicoControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id))
                 .andExpect(jsonPath("$.status").value("EM_EXECUCAO"));
+    }
+
+    @Test
+    void historico_DeveRetornarListaDeHistorico() throws Exception {
+        Long id = 1L;
+        com.f1rsters.os_service.domain.OrdemServicoHistorico h = new com.f1rsters.os_service.domain.OrdemServicoHistorico();
+        h.setOsId(id);
+        h.setStatusNovo(StatusOrdemServico.RECEBIDA);
+        h.setOrigem("CRIACAO");
+
+        when(service.listarHistorico(id)).thenReturn(List.of(h));
+
+        mockMvc.perform(get("/api/ordens-servico/{id}/historico", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].osId").value(id))
+                .andExpect(jsonPath("$[0].statusNovo").value("RECEBIDA"))
+                .andExpect(jsonPath("$[0].origem").value("CRIACAO"));
     }
 
     @Test

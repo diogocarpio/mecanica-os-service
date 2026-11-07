@@ -10,7 +10,10 @@
       "request": {
         "method": "POST",
         "header": [
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
         ],
         "body": {
           "mode": "raw",
@@ -19,9 +22,14 @@
         "url": {
           "raw": "http://localhost:8081/api/ordens-servico",
           "protocol": "http",
-          "host": ["localhost"],
+          "host": [
+            "localhost"
+          ],
           "port": "8081",
-          "path": ["api", "ordens-servico"]
+          "path": [
+            "api",
+            "ordens-servico"
+          ]
         }
       }
     },
@@ -32,9 +40,14 @@
         "url": {
           "raw": "http://localhost:8081/api/ordens-servico",
           "protocol": "http",
-          "host": ["localhost"],
+          "host": [
+            "localhost"
+          ],
           "port": "8081",
-          "path": ["api", "ordens-servico"]
+          "path": [
+            "api",
+            "ordens-servico"
+          ]
         }
       }
     },
@@ -45,9 +58,36 @@
         "url": {
           "raw": "http://localhost:8081/api/ordens-servico/1/status",
           "protocol": "http",
-          "host": ["localhost"],
+          "host": [
+            "localhost"
+          ],
           "port": "8081",
-          "path": ["api", "ordens-servico", "1", "status"]
+          "path": [
+            "api",
+            "ordens-servico",
+            "1",
+            "status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Consultar Historico da OS",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8081/api/ordens-servico/1/historico",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8081",
+          "path": [
+            "api",
+            "ordens-servico",
+            "1",
+            "historico"
+          ]
         }
       }
     },
@@ -56,7 +96,10 @@
       "request": {
         "method": "PATCH",
         "header": [
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
         ],
         "body": {
           "mode": "raw",
@@ -65,9 +108,16 @@
         "url": {
           "raw": "http://localhost:8081/api/ordens-servico/1/status",
           "protocol": "http",
-          "host": ["localhost"],
+          "host": [
+            "localhost"
+          ],
           "port": "8081",
-          "path": ["api", "ordens-servico", "1", "status"]
+          "path": [
+            "api",
+            "ordens-servico",
+            "1",
+            "status"
+          ]
         }
       }
     },
@@ -76,7 +126,10 @@
       "request": {
         "method": "POST",
         "header": [
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
         ],
         "body": {
           "mode": "raw",
@@ -85,9 +138,17 @@
         "url": {
           "raw": "http://localhost:8081/api/ordens-servico/1/orcamento/resposta",
           "protocol": "http",
-          "host": ["localhost"],
+          "host": [
+            "localhost"
+          ],
           "port": "8081",
-          "path": ["api", "ordens-servico", "1", "orcamento", "resposta"]
+          "path": [
+            "api",
+            "ordens-servico",
+            "1",
+            "orcamento",
+            "resposta"
+          ]
         }
       }
     },
@@ -96,7 +157,10 @@
       "request": {
         "method": "POST",
         "header": [
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
         ],
         "body": {
           "mode": "raw",
@@ -105,9 +169,17 @@
         "url": {
           "raw": "http://localhost:8081/api/ordens-servico/1/status/notificacao",
           "protocol": "http",
-          "host": ["localhost"],
+          "host": [
+            "localhost"
+          ],
           "port": "8081",
-          "path": ["api", "ordens-servico", "1", "status", "notificacao"]
+          "path": [
+            "api",
+            "ordens-servico",
+            "1",
+            "status",
+            "notificacao"
+          ]
         }
       }
     }

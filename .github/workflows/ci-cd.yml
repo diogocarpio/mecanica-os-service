@@ -29,14 +29,8 @@ jobs:
       - name: Build with Maven
         run: mvn clean compile -B
 
-      - name: Run unit tests
-        run: mvn test -B
-
-      - name: Generate test coverage report
-        run: mvn jacoco:report -B
-
-      - name: Check test coverage (min 80%)
-        run: mvn jacoco:check -B
+      - name: Build, test and verify coverage
+        run: mvn verify -B
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
@@ -44,9 +38,6 @@ jobs:
           files: ./target/site/jacoco/jacoco.xml
           flags: unittests
           name: codecov-umbrella
-
-      - name: Build package
-        run: mvn package -DskipTests -B
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -59,6 +50,9 @@ jobs:
     name: Build Docker Image
     runs-on: ubuntu-latest
     needs: build-and-test
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout code
@@ -72,12 +66,49 @@ jobs:
 
       - name: Run container health check
         run: |
-          docker run -d -p 8081:8081 --name os-service-test os-service:latest
+          docker network create os-net
+          docker run -d --name pg --network os-net \
+            -e POSTGRES_DB=os_service_db \
+            -e POSTGRES_USER=os_service_user \
+            -e POSTGRES_PASSWORD=os_service_password \
+            postgres:15-alpine
+          docker run -d --name rmq --network os-net \
+            -e RABBITMQ_DEFAULT_USER=guest \
+            -e RABBITMQ_DEFAULT_PASS=guest \
+            rabbitmq:3-management-alpine
+          for i in $(seq 1 30); do docker exec pg pg_isready -U os_service_user -d os_service_db && break; sleep 2; done
+          for i in $(seq 1 30); do docker exec rmq rabbitmq-diagnostics -q ping && break; sleep 2; done
+          docker run -d --name os-service-test --network os-net -p 8081:8081 \
+            -e DATABASE_URL=jdbc:postgresql://pg:5432/os_service_db \
+            -e DATABASE_USERNAME=os_service_user \
+            -e DATABASE_PASSWORD=os_service_password \
+            -e RABBITMQ_HOST=rmq \
+            -e RABBITMQ_PORT=5672 \
+            -e RABBITMQ_USERNAME=guest \
+            -e RABBITMQ_PASSWORD=guest \
+            os-service:latest
           sleep 60
           curl -f http://localhost:8081/actuator/health || exit 1
 
-      - name: Stop container
-        run: docker stop os-service-test && docker rm os-service-test
+      - name: Stop containers
+        if: always()
+        run: docker rm -f os-service-test pg rmq 2>/dev/null || true
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image to GHCR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
 
   quality-check:
     name: Code Quality Check
@@ -128,6 +159,11 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
 
+      - name: Set container image
+        run: |
+          sed -i "s|image: os-service:latest|image: ghcr.io/${{ github.repository }}:latest|" k8s/deployment.yaml
+          grep "image:" k8s/deployment.yaml
+
       - name: Apply Kubernetes manifests
         run: |
           kubectl apply -f k8s/namespace.yaml
@@ -157,6 +193,12 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: '1.5.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
 
       - name: Terraform Init
         run: |

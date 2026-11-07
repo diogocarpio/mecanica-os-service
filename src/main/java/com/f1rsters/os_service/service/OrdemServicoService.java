@@ -1,11 +1,12 @@
 package com.f1rsters.os_service.service;
 
 import com.f1rsters.os_service.domain.OrdemServico;
+import com.f1rsters.os_service.domain.OrdemServicoHistorico;
 import com.f1rsters.os_service.domain.StatusOrdemServico;
 import com.f1rsters.os_service.dto.*;
+import com.f1rsters.os_service.repository.OrdemServicoHistoricoRepository;
 import com.f1rsters.os_service.repository.OrdemServicoRepository;
 import com.f1rsters.os_service.util.InputNormalizer;
-import com.f1rsters.os_service.util.SensitiveDataMasker;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -17,7 +18,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -39,8 +39,10 @@ public class OrdemServicoService {
     private static final String OS_NAO_ENCONTRADA_REASON = "os_nao_encontrada";
     private static final String DETALHAR = "detalhar";
     private static final String CONSULTAR_STATUS = "consultar_status";
+    private static final String LISTAR_HISTORICO = "listar_historico";
 
     private final OrdemServicoRepository repo;
+    private final OrdemServicoHistoricoRepository historicoRepo;
     private final MeterRegistry meterRegistry;
     private final RabbitTemplate rabbitTemplate;
 
@@ -56,9 +58,11 @@ public class OrdemServicoService {
     private final Counter statusTransitionCounter;
 
     public OrdemServicoService(OrdemServicoRepository repo,
+                               OrdemServicoHistoricoRepository historicoRepo,
                                MeterRegistry meterRegistry,
                                RabbitTemplate rabbitTemplate) {
         this.repo = repo;
+        this.historicoRepo = historicoRepo;
         this.meterRegistry = meterRegistry;
         this.rabbitTemplate = rabbitTemplate;
 
@@ -122,6 +126,7 @@ public class OrdemServicoService {
             os.setValorTotal(valorTotal);
             os.setStatus(StatusOrdemServico.RECEBIDA);
             OrdemServico created = repo.save(os);
+            registrarHistorico(created.getId(), null, StatusOrdemServico.RECEBIDA, "CRIACAO", null);
 
             MDC.put(OS_ID, created.getId().toString());
             MDC.put("os_status", created.getStatus().name());
@@ -181,6 +186,7 @@ public class OrdemServicoService {
             log.info("Status atualizado com sucesso: id={}, de={}, para={}", id, statusAnterior, novoStatus);
 
             recordStatusTransition(updated, statusAnterior, novoStatus);
+            registrarHistorico(updated.getId(), statusAnterior, novoStatus, "ATUALIZACAO_MANUAL", null);
 
             atualizarStatusSuccessCounter.increment();
 
@@ -292,6 +298,9 @@ public class OrdemServicoService {
             OrdemServico updated = repo.save(os);
 
             recordStatusTransition(updated, statusAnterior, updated.getStatus());
+            if (!statusAnterior.equals(updated.getStatus())) {
+                registrarHistorico(updated.getId(), statusAnterior, updated.getStatus(), "ORCAMENTO:APROVADO", null);
+            }
 
             processarOrcamentoSuccessCounter.increment();
 
@@ -342,6 +351,7 @@ public class OrdemServicoService {
             log.info("Status atualizado via notificação: id={}, de={}, para={}", id, statusAnterior, dto.novoStatus);
 
             recordStatusTransition(updated, statusAnterior, dto.novoStatus);
+            registrarHistorico(updated.getId(), statusAnterior, dto.novoStatus, "NOTIFICACAO_STATUS", null);
 
             processarNotificacaoStatusSuccessCounter.increment();
 
@@ -382,6 +392,7 @@ public class OrdemServicoService {
             publishOSEvent(updated, "os.cancelled");
 
             recordStatusTransition(updated, statusAnterior, StatusOrdemServico.CANCELADA);
+            registrarHistorico(updated.getId(), statusAnterior, StatusOrdemServico.CANCELADA, "CANCELAMENTO", motivo);
             log.info("OS cancelada com sucesso: id={}, motivo={}", id, motivo);
             return updated;
         } finally {
@@ -423,7 +434,32 @@ public class OrdemServicoService {
 
         OrdemServico updated = repo.save(os);
         recordStatusTransition(updated, statusAnterior, updated.getStatus());
+        if (!statusAnterior.equals(updated.getStatus())) {
+            registrarHistorico(updated.getId(), statusAnterior, updated.getStatus(), "SAGA:" + event.getEventType(), null);
+        }
         return updated;
+    }
+
+    public List<OrdemServicoHistorico> listarHistorico(Long id) {
+        MDC.put(OPERATION, LISTAR_HISTORICO);
+        MDC.put(OS_ID, id.toString());
+
+        try {
+            log.info("Consultando histórico da OS: id={}", id);
+
+            repo.findById(id).orElseThrow(() -> {
+                MDC.put(ERROR_REASON, OS_NAO_ENCONTRADA_REASON);
+                log.error("OS não encontrada: id={}", id);
+                return new RuntimeException(OS_NAO_ENCONTRADA);
+            });
+
+            List<OrdemServicoHistorico> historico = historicoRepo.findByOsIdOrderByCriadoEmAsc(id);
+            log.info("Histórico consultado: id={}, registros={}", id, historico.size());
+            return historico;
+
+        } finally {
+            MDC.clear();
+        }
     }
 
     private void validarTransicaoStatus(StatusOrdemServico statusAnterior, StatusOrdemServico novoStatus, Long id) {
@@ -473,6 +509,20 @@ public class OrdemServicoService {
                 .tag(OS_ID, osId != null ? osId.toString() : "unknown")
                 .register(meterRegistry)
                 .increment();
+    }
+
+    private void registrarHistorico(Long osId,
+                                    StatusOrdemServico statusAnterior,
+                                    StatusOrdemServico statusNovo,
+                                    String origem,
+                                    String motivo) {
+        OrdemServicoHistorico historico = new OrdemServicoHistorico();
+        historico.setOsId(osId);
+        historico.setStatusAnterior(statusAnterior);
+        historico.setStatusNovo(statusNovo);
+        historico.setOrigem(origem);
+        historico.setMotivo(motivo);
+        historicoRepo.save(historico);
     }
 
     private void recordStatusTransition(OrdemServico os,

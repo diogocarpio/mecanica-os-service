@@ -56,17 +56,27 @@ Orquestração.
 
 ## Tratamento de falhas e compensação
 
-Se houver erro em qualquer etapa:
+O OS Service implementa compensação por **evento compensatório + reversão de estado**, sem transações distribuídas:
 
-- a ordem é marcada como cancelada ou rejeitada
-- o serviço de origem publica evento de compensação
-- serviços dependentes interrompem ou revertam ações parciais
+| Evento de falha | Ação de compensação no OS Service | Evento publicado |
+|---|---|---|
+| `orcamento.rejeitado` (Billing) | OS transiciona para `CANCELADA` (rollback do estado `AGUARDANDO_APROVACAO`) | `os.cancelled` |
+| `os.cancelled` (cancelamento externo) | OS transiciona para `CANCELADA` a partir de qualquer status não final | — |
+| Falha na publicação de evento | Log de erro + métrica `os.events.published`/`failures`; a OS permanece persistida e o fluxo pode ser retomado por reprocessamento | — |
+| Transição de status inválida | Rejeição com `IllegalStateException` (HTTP 400/500) — nenhuma alteração parcial é persistida | — |
+
+Regras de compensação implementadas em `OrdemServicoService.processarEventoSaga` e `cancelarOrdem`:
+
+- **Reversão de estado**: a OS volta para `CANCELADA`, desfazendo o avanço no fluxo (ex.: `AGUARDANDO_APROVACAO` → `CANCELADA`).
+- **Notificação downstream**: o evento `os.cancelled` é publicado no exchange `os.exchange` para que Billing e Execution interrompam ações parciais (estorno de orçamento, cancelamento de execução).
+- **Idempotência por estado**: transições inválidas são rejeitadas, evitando compensações duplicadas.
+- **Rastreabilidade**: cada transição é registrada em log estruturado (MDC) e em métricas Micrometer (`os.status.transitions`, contadores de sucesso/erro por operação).
 
 Exemplos:
 
-- `os.created` falha no Billing Service -> ordem fica em status de falha e o fluxo é encerrado
-- `os.approved` não chega ou é rejeitado -> execução não inicia
-- `execution.completed` não chega -> OS permanece em status de execução até compensação ou retriagem
+- `os.created` falha no Billing Service -> Billing não publica aprovação; a OS permanece em `AGUARDANDO_APROVACAO` até rejeição/cancelamento
+- `os.approved` não chega ou é rejeitado -> execução não inicia; OS vai para `CANCELADA` com evento `os.cancelled`
+- `execution.completed` não chega -> OS permanece em `EM_EXECUCAO`; compensação ocorre via cancelamento (`os.cancelled`) ou intervenção operacional
 
 ## Eventos sugeridos
 

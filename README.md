@@ -12,6 +12,7 @@ Microsserviço responsável por gerenciar as ordens de serviço (OS) do sistema 
 - [Fluxo de Saga recomendado](#fluxo-de-saga-recomendado)
 - [Arquitetura e Saga detalhada](docs/arquitetura-saga.md)
 - [Contrato de eventos e payloads](docs/contrato-eventos-saga.md)
+- [Integração com Billing e Execution](docs/integracao-microsservicos.md)
 - [Requisitos e configurações](#requisitos-e-configurações)
 - [Configuração local](#configuração-local)
 - [Executando a aplicação](#executando-a-aplicação)
@@ -110,7 +111,9 @@ mecanica-os-service/
 │   └── workflows/
 │       └── ci-cd.yml
 ├── docs/
-│   └── (documentação complementar, se adicionada no futuro)
+│   ├── arquitetura-saga.md
+│   ├── contrato-eventos-saga.md
+│   └── integracao-microsservicos.md
 ├── k8s/
 │   ├── namespace.yaml
 │   ├── configmap.yaml
@@ -128,6 +131,7 @@ mecanica-os-service/
 │   │   │   │   └── OrdemServicoController.java
 │   │   │   ├── domain/
 │   │   │   │   ├── OrdemServico.java
+│   │   │   │   ├── OrdemServicoHistorico.java
 │   │   │   │   └── StatusOrdemServico.java
 │   │   │   ├── dto/
 │   │   │   │   ├── CriarOrdemServicoDTO.java
@@ -139,9 +143,12 @@ mecanica-os-service/
 │   │   │   │   └── OSEvent.java
 │   │   │   ├── exception/
 │   │   │   │   └── ApiExceptionHandler.java
+│   │   │   ├── listener/
+│   │   │   │   └── OrdemServicoSagaListener.java
 │   │   │   ├── mapper/
 │   │   │   │   └── OrdemServicoMapper.java
 │   │   │   ├── repository/
+│   │   │   │   ├── OrdemServicoHistoricoRepository.java
 │   │   │   │   └── OrdemServicoRepository.java
 │   │   │   ├── service/
 │   │   │   │   └── OrdemServicoService.java
@@ -160,15 +167,24 @@ mecanica-os-service/
 │   │       └── application.yaml
 │   └── test/
 │       ├── java/com/f1rsters/os_service/
+│       │   ├── bdd/                  # Cucumber: os-saga.feature
 │       │   ├── config/
 │       │   ├── controller/
+│       │   ├── domain/
+│       │   ├── dto/
 │       │   ├── exception/
+│       │   ├── listener/
+│       │   ├── repository/
 │       │   ├── mapper/
 │       │   ├── service/
-│       │   └── util/
+│       │   ├── util/
+│       │   └── validation/
 │       └── resources/
-│           └── application-test.yaml
+│           ├── application-test.yaml
+│           └── features/
+│               └── os-saga.feature
 ├── Dockerfile
+├── docker-compose.yml
 ├── pom.xml
 ├── terraform/
 │   ├── README.md
@@ -264,6 +280,8 @@ A aplicação usa as seguintes variáveis padrão se não forem definidas:
 - `RABBITMQ_USERNAME=guest`
 - `RABBITMQ_PASSWORD=guest`
 - `SERVER_PORT=8081`
+
+> **Nota:** o `spring.jpa.hibernate.ddl-auto` está configurado como `update` (adequado para o desafio e desenvolvimento). Em produção, recomenda-se `validate` ou migrações com Flyway/Liquibase.
 
 ---
 
@@ -375,6 +393,14 @@ GET /api/ordens-servico/{id}
 GET /api/ordens-servico/{id}/status
 ```
 
+### Consultar histórico de status
+
+```http
+GET /api/ordens-servico/{id}/historico
+```
+
+Retorna a trilha de auditoria da OS: cada registro contém `statusAnterior`, `statusNovo`, `origem` (`CRIACAO`, `ATUALIZACAO_MANUAL`, `ORCAMENTO:APROVADO`, `NOTIFICACAO_STATUS`, `CANCELAMENTO`, `SAGA:<evento>`), `motivo` (quando aplicável) e `criadoEm`.
+
 ### Responder orçamento
 
 ```http
@@ -436,10 +462,19 @@ mvn jacoco:report
 ### Verificar regra de cobertura
 
 ```bash
-mvn jacoco:check
+mvn verify
 ```
 
-A cobertura é validada com JaCoCo na pipeline e os testes do serviço cobrem a lógica de criação, atualização, consulta, validação, mapeamento e tratamento de exceções.
+O `mvn verify` executa testes, gera o relatório JaCoCo e valida a regra de cobertura configurada no `pom.xml` (100% de instruções nas classes de lógica — entidades e DTOs gerados por Lombok são excluídos do check).
+
+Estado atual da cobertura:
+
+- **177 testes** (unitários + BDD/Cucumber), 0 falhas
+- **100% de instruções e branches** em todas as classes verificadas pelo JaCoCo check
+- **100% de linhas** em todo o projeto, incluindo DTOs e entidade
+- BDD com 4 cenários do fluxo Saga (criação, aprovação, rejeição, execução concluída e cancelamento via eventos)
+
+Relatório: `target/site/jacoco/index.html`
 
 ---
 
@@ -455,14 +490,15 @@ A cobertura é validada com JaCoCo na pipeline e os testes do serviço cobrem a 
 - [x] API REST
 - [x] Estrutura de eventos via RabbitMQ
 - [x] Testes unitários
-- [x] Cobertura com JaCoCo
+- [x] Testes BDD (Cucumber) do fluxo Saga com eventos de Billing e Execution
+- [x] Cobertura com JaCoCo (100% instruções nas classes verificadas)
 - [x] Documentação inicial do projeto
 
 ### Requisitos que dependem do conjunto do grupo
 
-- [ ] Banco NoSQL no conjunto da solução
-- [ ] Fluxo completo de Saga integrado entre microsserviços
-- [ ] BDD de integração entre serviços
+- [ ] Banco NoSQL no conjunto da solução (Billing Service)
+- [ ] Fluxo completo de Saga integrado entre microsserviços (depende de Billing e Execution)
+- [ ] BDD de integração real entre os 3 serviços (spec em `docs/integracao-microsservicos.md`)
 - [ ] Swagger/Postman final do fluxo completo
 - [ ] Deploy completo e monitoramento em ambiente integrado
 
@@ -483,4 +519,18 @@ A cobertura é validada com JaCoCo na pipeline e os testes do serviço cobrem a 
 
 ---
 
-Se quiser, o próximo passo é alinhar o desenho completo com os outros microsserviços do grupo, definindo os eventos exatos, o banco NoSQL e os nomes finais dos serviços de Billing e Execution.
+O contrato de eventos (`docs/contrato-eventos-saga.md`) e a spec de integração (`docs/integracao-microsservicos.md`) já estão prontos para os Alunos 2 (Billing) e 3 (Execution) implementarem seus serviços.
+
+---
+
+## Pipeline CI/CD
+
+O workflow `.github/workflows/ci-cd.yml` executa:
+
+1. **Build and Test** — `mvn verify` (testes + JaCoCo 100%) e upload de cobertura para Codecov
+2. **Build Docker Image** — build, health check com Postgres + RabbitMQ reais e push para GHCR (`ghcr.io/<repo>:latest`)
+3. **Code Quality Check** — SonarQube/SonarCloud (requer secrets `SONAR_TOKEN` e `SONAR_HOST_URL`)
+4. **Deploy to Kubernetes** — `kubectl apply` dos manifests em `k8s/` (somente na `main`)
+5. **Terraform** — provisiona PostgreSQL no cluster (somente na `main`)
+
+Secrets necessários no GitHub: `KUBE_CONFIG`, `SONAR_TOKEN`, `SONAR_HOST_URL`.

@@ -12,3 +12,22 @@ Feature: Fluxo de ordem de serviço
     Then o status da OS deve ser "EM_EXECUCAO"
     When o serviço de execução finaliza a ordem
     Then o status da OS deve ser "FINALIZADA"
+
+  Scenario: rejeição do orçamento pelo billing service cancela a ordem de serviço
+    Given uma OS é criada com CPF "20000000000" e placa "XYZ9876"
+    When o billing informa que o orçamento foi gerado e a OS entrou em aguardando aprovação
+    And o billing service publica o evento de orçamento rejeitado
+    Then o status da OS deve ser "CANCELADA"
+
+  Scenario: aprovação e execução concluída via eventos do saga
+    Given uma OS é criada com CPF "30000000000" e placa "QWE4321"
+    When o billing informa que o orçamento foi gerado e a OS entrou em aguardando aprovação
+    And o billing service publica o evento de orçamento aprovado
+    Then o status da OS deve ser "EM_EXECUCAO"
+    When o execution service publica o evento de execução concluída
+    Then o status da OS deve ser "FINALIZADA"
+
+  Scenario: cancelamento da ordem de serviço via evento
+    Given uma OS é criada com CPF "40000000000" e placa "RTY8765"
+    When um evento de cancelamento da OS é recebido
+    Then o status da OS deve ser "CANCELADA"
