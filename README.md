@@ -94,12 +94,15 @@ O projeto do challenge exige, no conjunto da arquitetura, pelo menos um banco No
 | H2 Database | Testes |
 | SpringDoc OpenAPI | Swagger |
 | Lombok | Redução de boilerplate |
-| JaCoCo | Cobertura de testes |
+| Cucumber + JUnit 5 | Testes BDD |
 | Maven | Build e dependências |
 | Docker | Containerização |
 | Kubernetes | Deploy |
 | Terraform | Infraestrutura como código |
 | Micrometer / Actuator | Observabilidade |
+| SonarCloud | Qualidade de código no CI |
+| GitHub Actions | Pipeline CI/CD |
+| Codecov | Upload de cobertura no CI |
 
 ---
 
@@ -186,6 +189,9 @@ mecanica-os-service/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── pom.xml
+├── .env.example
+├── postman/
+│   └── os-service.postman_collection.json
 ├── terraform/
 │   ├── README.md
 │   ├── main.tf
@@ -465,16 +471,39 @@ mvn jacoco:report
 mvn verify
 ```
 
-O `mvn verify` executa testes, gera o relatório JaCoCo e valida a regra de cobertura configurada no `pom.xml` (100% de instruções nas classes de lógica — entidades e DTOs gerados por Lombok são excluídos do check).
+O `mvn verify` executa testes, gera o relatório JaCoCo e valida a regra de cobertura configurada no `pom.xml` (100% de instruções, branches e linhas nas classes de lógica — entidades e DTOs gerados por Lombok são excluídos do check e do relatório).
 
 Estado atual da cobertura:
 
-- **177 testes** (unitários + BDD/Cucumber), 0 falhas
-- **100% de instruções e branches** em todas as classes verificadas pelo JaCoCo check
-- **100% de linhas** em todo o projeto, incluindo DTOs e entidade
+- **180 testes** (unitários + BDD/Cucumber), 0 falhas
+- **100% de instruções, branches e linhas** em todas as classes verificadas pelo JaCoCo check
 - BDD com 4 cenários do fluxo Saga (criação, aprovação, rejeição, execução concluída e cancelamento via eventos)
 
 Relatório: `target/site/jacoco/index.html`
+
+### Testes BDD (Cucumber)
+
+O serviço possui testes de comportamento com Cucumber + JUnit 5, executados junto com `mvn test`/`mvn verify` (não é preciso comando separado).
+
+Para rodar apenas os cenários BDD:
+
+```bash
+mvn test -Dtest=RunCucumberTest
+```
+
+Arquivos:
+
+- Steps: `src/test/java/com/f1rsters/os_service/bdd/OSServiceSagaSteps.java`
+- Feature: `src/test/resources/features/os-saga.feature`
+
+Cenários cobertos (4):
+
+1. **Abertura, aprovação e finalização** — OS criada (`RECEBIDA`) → orçamento gerado (`AGUARDANDO_APROVACAO`) → orçamento aprovado (`EM_EXECUCAO`) → execução concluída (`FINALIZADA`)
+2. **Rejeição do orçamento** — orçamento rejeitado pelo Billing cancela a OS (`CANCELADA`), exercitando a compensação do Saga
+3. **Aprovação e execução via eventos** — fluxo completo dirigido por eventos do Saga: `orcamento.aprovado` (Billing) → `os.approved` (publicado) → `execution.completed` (Execution) → `os.status.updated` (publicado)
+4. **Cancelamento via evento** — evento `os.cancelled` recebido pelo listener transiciona a OS para `CANCELADA`
+
+Os eventos dos serviços Billing e Execution são simulados nos steps invocando diretamente os métodos do `OrdemServicoSagaListener` (com `RabbitTemplate` mockado), validando o contrato de eventos definido em `docs/contrato-eventos-saga.md` — incluindo os eventos publicados pelo OS Service (`os.created`, `os.approved`, `os.cancelled`, `os.status.updated`). A integração BDD real entre os 3 microsserviços depende da implementação dos Alunos 2 e 3 (ver `docs/integracao-microsservicos.md`).
 
 ---
 
@@ -491,7 +520,7 @@ Relatório: `target/site/jacoco/index.html`
 - [x] Estrutura de eventos via RabbitMQ
 - [x] Testes unitários
 - [x] Testes BDD (Cucumber) do fluxo Saga com eventos de Billing e Execution
-- [x] Cobertura com JaCoCo (100% instruções nas classes verificadas)
+- [x] Cobertura com JaCoCo (100% instruções, branches e linhas nas classes verificadas)
 - [x] Documentação inicial do projeto
 
 ### Requisitos que dependem do conjunto do grupo
@@ -527,10 +556,10 @@ O contrato de eventos (`docs/contrato-eventos-saga.md`) e a spec de integração
 
 O workflow `.github/workflows/ci-cd.yml` executa:
 
-1. **Build and Test** — `mvn verify` (testes + JaCoCo 100%) e upload de cobertura para Codecov
-2. **Build Docker Image** — build, health check com Postgres + RabbitMQ reais e push para GHCR (`ghcr.io/<repo>:latest`)
-3. **Code Quality Check** — SonarQube/SonarCloud (requer secrets `SONAR_TOKEN` e `SONAR_HOST_URL`)
-4. **Deploy to Kubernetes** — `kubectl apply` dos manifests em `k8s/` (somente na `main`)
-5. **Terraform** — provisiona PostgreSQL no cluster (somente na `main`)
+1. **Build and Test** — `mvn verify` (testes + JaCoCo 100% instruction/branch/line) e upload de cobertura para Codecov
+2. **Build Docker Image** — build da imagem, health check do container com PostgreSQL + RabbitMQ reais via `docker-compose.yml` e push para GHCR (`ghcr.io/<repo>:latest`)
+3. **Code Quality Check** — SonarCloud (JDK 21 para o scanner; a aplicação continua em Java 17)
+4. **Deploy to Kubernetes** — `kubectl apply` dos manifests em `k8s/`, troca da imagem para GHCR e `kubectl rollout status` (somente na `main`)
+5. **Terraform** — provisiona o PostgreSQL no cluster (StatefulSet + PVC + Service, ver `terraform/README.md`), somente na `main`
 
-Secrets necessários no GitHub: `KUBE_CONFIG`, `SONAR_TOKEN`, `SONAR_HOST_URL`.
+Secrets necessários no GitHub: `KUBE_CONFIG`, `SONAR_TOKEN`, `SONAR_HOST_URL`, `SONAR_PROJECT_KEY`, `SONAR_ORGANIZATION`.

@@ -19,7 +19,7 @@ public class CpfCnpjValidator {
     }
 
     private static boolean isValidCPF(String cpf) {
-        if (cpf.length() != 11 || cpf.chars().distinct().count() == 1) {
+        if (cpf.chars().distinct().count() == 1) {
             return false;
         }
 
@@ -31,7 +31,7 @@ public class CpfCnpjValidator {
     }
 
     private static boolean isValidCNPJ(String cnpj) {
-        if (cnpj.length() != 14 || cnpj.chars().distinct().count() == 1) {
+        if (cnpj.chars().distinct().count() == 1) {
             return false;
         }
 
