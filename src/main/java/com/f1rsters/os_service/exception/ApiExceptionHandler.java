@@ -40,6 +40,21 @@ public class ApiExceptionHandler {
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, Object>> handleRuntimeException(RuntimeException ex) {
         Map<String, Object> response = new HashMap<>();
+
+        Throwable cause = ex;
+        while (cause != null) {
+            if (cause instanceof OrdemServicoNaoEncontradaException) {
+                response.put("timestamp", LocalDateTime.now());
+                response.put("status", HttpStatus.NOT_FOUND.value());
+                response.put("error", "Not Found");
+                response.put("message", cause.getMessage());
+
+                log.warn("OS não encontrada: {}", cause.getMessage());
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+            }
+            cause = cause.getCause();
+        }
+
         response.put("timestamp", LocalDateTime.now());
         response.put("status", HttpStatus.BAD_REQUEST.value());
         response.put("error", "Bad Request");
