@@ -72,7 +72,7 @@ jobs:
             -e POSTGRES_USER=os_service_user \
             -e POSTGRES_PASSWORD=os_service_password \
             postgres:15-alpine
-          docker run -d --name rmq --network os-net \
+          docker run -d --name rmq --hostname rmq --network os-net \
             -e RABBITMQ_DEFAULT_USER=guest \
             -e RABBITMQ_DEFAULT_PASS=guest \
             rabbitmq:3-management-alpine
@@ -87,8 +87,13 @@ jobs:
             -e RABBITMQ_USERNAME=guest \
             -e RABBITMQ_PASSWORD=guest \
             os-service:latest
-          sleep 60
-          curl -f http://localhost:8081/actuator/health || exit 1
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8081/actuator/health && exit 0
+            sleep 5
+          done
+          echo "Health check falhou após 150s"
+          docker logs os-service-test
+          exit 1
 
       - name: Stop containers
         if: always()
