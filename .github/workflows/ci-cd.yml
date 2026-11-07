@@ -66,38 +66,19 @@ jobs:
 
       - name: Run container health check
         run: |
-          docker network create os-net
-          docker run -d --name pg --network os-net \
-            -e POSTGRES_DB=os_service_db \
-            -e POSTGRES_USER=os_service_user \
-            -e POSTGRES_PASSWORD=os_service_password \
-            postgres:15-alpine
-          docker run -d --name rmq --hostname rmq --network os-net \
-            -e RABBITMQ_DEFAULT_USER=guest \
-            -e RABBITMQ_DEFAULT_PASS=guest \
-            rabbitmq:3-management-alpine
-          for i in $(seq 1 30); do docker exec pg pg_isready -U os_service_user -d os_service_db && break; sleep 2; done
-          for i in $(seq 1 30); do docker exec rmq rabbitmq-diagnostics -q ping && break; sleep 2; done
-          docker run -d --name os-service-test --network os-net -p 8081:8081 \
-            -e DATABASE_URL=jdbc:postgresql://pg:5432/os_service_db \
-            -e DATABASE_USERNAME=os_service_user \
-            -e DATABASE_PASSWORD=os_service_password \
-            -e RABBITMQ_HOST=rmq \
-            -e RABBITMQ_PORT=5672 \
-            -e RABBITMQ_USERNAME=guest \
-            -e RABBITMQ_PASSWORD=guest \
-            os-service:latest
+          docker compose up -d --wait postgres rabbitmq
+          docker compose up -d --build app
           for i in $(seq 1 30); do
             curl -sf http://localhost:8081/actuator/health && exit 0
             sleep 5
           done
           echo "Health check falhou após 150s"
-          docker logs os-service-test
+          docker compose logs app
           exit 1
 
       - name: Stop containers
         if: always()
-        run: docker rm -f os-service-test pg rmq 2>/dev/null || true
+        run: docker compose down -v
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
