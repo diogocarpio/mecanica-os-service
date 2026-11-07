@@ -8,7 +8,7 @@ on:
 
 env:
   JAVA_VERSION: '17'
-  MAVEN_OPTS: -X(mx)1024m
+  MAVEN_OPTS: -Xmx1024m
 
 jobs:
   build-and-test:
