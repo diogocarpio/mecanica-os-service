@@ -578,7 +578,8 @@ O workflow `.github/workflows/ci.yml` segue o mesmo padrão do `mecanica-executi
 | Nome | Descrição |
 |---|---|
 | `SONAR_TOKEN` | Token de autenticação do SonarCloud |
-| `FORTIFY_API_KEY` | API key do Fortify on Demand |
+| `FOD_CLIENT_ID` | Client ID (API key) do Fortify on Demand |
+| `FOD_CLIENT_SECRET` | Client Secret (API secret) do Fortify on Demand |
 
 **Repository variables** (aba Variables):
 
@@ -586,7 +587,7 @@ O workflow `.github/workflows/ci.yml` segue o mesmo padrão do `mecanica-executi
 |---|---|
 | `SONAR_ORGANIZATION` | Organização no SonarCloud |
 | `SONAR_PROJECT_KEY` | Chave do projeto no SonarCloud |
-| `FORTIFY_URL` | URL do tenant Fortify on Demand |
+| `FOD_URL` | URL do tenant Fortify on Demand (ex: `https://ams.fortify.com`) — deve ser variable, não secret |
 | `AWS_REGION` | Região da AWS (ex: `sa-east-1`) |
 | `ECR_REPOSITORY` | Nome do repositório no Amazon ECR |
 

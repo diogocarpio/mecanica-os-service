@@ -15,7 +15,7 @@ env:
 jobs:
   build-test:
     name: Build and Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,8 +38,11 @@ jobs:
 
   sonar-fortify:
     name: Sonar and Fortify Analysis
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build-test
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,17 +68,17 @@ jobs:
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
             -Dsonar.qualitygate.wait=true
       - name: Fortify Scan
-        uses: fortify/fortify-scan-action@v2
-        with:
-          fortify_api_key: ${{ secrets.FORTIFY_API_KEY }}
-          fortify_url: ${{ vars.FORTIFY_URL }}
-          build_id: ${{ github.sha }}
+        uses: fortify/github-action@v3
+        env:
+          FOD_URL: ${{ vars.FOD_URL }}
+          FOD_CLIENT_ID: ${{ secrets.FOD_CLIENT_ID }}
+          FOD_CLIENT_SECRET: ${{ secrets.FOD_CLIENT_SECRET }}
 
   docker-build:
     name: Build Docker Image
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     permissions:
       contents: read
@@ -107,7 +110,7 @@ jobs:
     name: Deploy staging
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [docker-build, sonar-fortify]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     permissions:
       contents: read
@@ -163,7 +166,7 @@ jobs:
     name: Promote production
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [docker-build, deploy-staging]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: production
     permissions:
       contents: read
