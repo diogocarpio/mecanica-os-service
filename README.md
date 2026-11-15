@@ -101,8 +101,12 @@ O projeto do challenge exige, no conjunto da arquitetura, pelo menos um banco No
 | Terraform | Infraestrutura como código |
 | Micrometer / Actuator | Observabilidade |
 | SonarCloud | Qualidade de código no CI |
+| Fortify on Demand | Análise de segurança no CI |
 | GitHub Actions | Pipeline CI/CD |
-| Codecov | Upload de cobertura no CI |
+| Amazon ECR | Registro de imagens Docker |
+| Amazon EKS | Cluster Kubernetes |
+| AWS Secrets Manager | Credenciais de runtime |
+| GitHub OIDC | Autenticação AWS sem chaves estáticas |
 
 ---
 
@@ -112,7 +116,7 @@ O projeto do challenge exige, no conjunto da arquitetura, pelo menos um banco No
 mecanica-os-service/
 ├── .github/
 │   └── workflows/
-│       └── ci-cd.yml
+│       └── ci.yml
 ├── docs/
 │   ├── arquitetura-saga.md
 │   ├── contrato-eventos-saga.md
@@ -120,7 +124,7 @@ mecanica-os-service/
 ├── k8s/
 │   ├── namespace.yaml
 │   ├── configmap.yaml
-│   ├── secret.yaml
+│   ├── secret-contract.yaml
 │   ├── deployment.yaml
 │   ├── service.yaml
 │   └── hpa.yaml
@@ -194,10 +198,15 @@ mecanica-os-service/
 │   └── os-service.postman_collection.json
 ├── terraform/
 │   ├── README.md
-│   ├── main.tf
-│   ├── variables.tf
-│   ├── outputs.tf
-│   └── terraform.tfvars.example
+│   ├── bootstrap/              # backend remoto (S3 + DynamoDB)
+│   ├── environments/           # staging e production (EKS, ECR, Secrets Manager, OIDC)
+│   ├── modules/platform/       # módulo compartilhado
+│   └── postgres/               # PostgreSQL no cluster (StatefulSet + PVC + Service)
+│       ├── README.md
+│       ├── main.tf
+│       ├── variables.tf
+│       ├── outputs.tf
+│       └── terraform.tfvars.example
 ├── README.md
 └── .gitignore
 ```
@@ -544,7 +553,7 @@ Os eventos dos serviços Billing e Execution são simulados nos steps invocando 
 - O serviço foi desenhado para ser independente e pronto para integração em um ecossistema de microsserviços.
 - O pacote `mapper` foi adicionado para manter a padronização com a arquitetura do monolito de referência.
 - O código foi preparado para facilitar evolução e manutenção sem deixar a solução "acoplada" ao banco do restante do sistema.
-- A solução local foi validada com testes e com build Maven; não houve uso de AWS CLI nem qualquer provisionamento em cloud.
+- A solução local foi validada com testes e com build Maven; a infraestrutura cloud (EKS/ECR/Secrets Manager) é provisionada via Terraform e aplicada pelo pipeline, sem credenciais AWS estáticas no GitHub.
 
 ---
 
@@ -554,12 +563,47 @@ O contrato de eventos (`docs/contrato-eventos-saga.md`) e a spec de integração
 
 ## Pipeline CI/CD
 
-O workflow `.github/workflows/ci-cd.yml` executa:
+O workflow `.github/workflows/ci.yml` segue o mesmo padrão do `mecanica-execution-service` e executa:
 
-1. **Build and Test** — `mvn verify` (testes + JaCoCo 100% instruction/branch/line) e upload de cobertura para Codecov
-2. **Build Docker Image** — build da imagem, health check do container com PostgreSQL + RabbitMQ reais via `docker-compose.yml` e push para GHCR (`ghcr.io/<repo>:latest`)
-3. **Code Quality Check** — SonarCloud (JDK 21 para o scanner; a aplicação continua em Java 17)
-4. **Deploy to Kubernetes** — `kubectl apply` dos manifests em `k8s/`, troca da imagem para GHCR e `kubectl rollout status` (somente na `main`)
-5. **Terraform** — provisiona o PostgreSQL no cluster (StatefulSet + PVC + Service, ver `terraform/README.md`), somente na `main`
+1. **Build and Test** — `mvn verify` (testes + JaCoCo 100% instruction/branch/line) e upload dos relatórios como artifact
+2. **Sonar and Fortify Analysis** — SonarCloud (`sonarqube-scan-action`, quality gate) e Fortify (`fortify-scan-action`)
+3. **Build Docker Image** — somente na `main`: autenticação OIDC na AWS, build e push da imagem para o Amazon ECR (`vars.ECR_REPOSITORY`)
+4. **Deploy staging** — somente na `main`: assume a role do environment `staging`, configura o `kubectl` para o EKS (`vars.EKS_CLUSTER_NAME`), lê o secret de runtime do AWS Secrets Manager (`vars.RUNTIME_SECRET_ID`), cria o Secret `os-service-secret` no cluster e aplica os manifests de `k8s/`
+5. **Promote production** — somente na `main`, após o staging: mesmo fluxo usando o environment `production`
 
-Secrets necessários no GitHub: `KUBE_CONFIG`, `SONAR_TOKEN`, `SONAR_HOST_URL`, `SONAR_PROJECT_KEY`, `SONAR_ORGANIZATION`.
+### Secrets e Variables do GitHub
+
+**Repository secrets** (Settings → Secrets and variables → Actions → Secrets):
+
+| Nome | Descrição |
+|---|---|
+| `SONAR_TOKEN` | Token de autenticação do SonarCloud |
+| `FORTIFY_API_KEY` | API key do Fortify on Demand |
+
+**Repository variables** (aba Variables):
+
+| Nome | Descrição |
+|---|---|
+| `SONAR_ORGANIZATION` | Organização no SonarCloud |
+| `SONAR_PROJECT_KEY` | Chave do projeto no SonarCloud |
+| `FORTIFY_URL` | URL do tenant Fortify on Demand |
+| `AWS_REGION` | Região da AWS (ex: `sa-east-1`) |
+| `ECR_REPOSITORY` | Nome do repositório no Amazon ECR |
+
+**Environment variables** (Settings → Environments → `staging` e `production`):
+
+| Nome | Descrição |
+|---|---|
+| `AWS_ROLE_ARN` | ARN da role IAM do GitHub Actions para o ambiente |
+| `EKS_CLUSTER_NAME` | Nome do cluster EKS do ambiente |
+| `RUNTIME_SECRET_ID` | ID do secret no AWS Secrets Manager com as credenciais de runtime |
+
+O secret de runtime (`mecanica-os/<ambiente>/runtime`) deve ser um JSON com as chaves `DATABASE_USERNAME`, `DATABASE_PASSWORD`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USERNAME` e `RABBITMQ_PASSWORD` — ver `k8s/secret-contract.yaml`.
+
+### Infraestrutura (Terraform)
+
+- `terraform/bootstrap` — cria o backend remoto (bucket S3 + tabela DynamoDB)
+- `terraform/environments/staging` e `terraform/environments/production` — provisionam VPC, EKS, ECR, Secrets Manager e a role OIDC do GitHub Actions (staging é o owner dos recursos compartilhados; aplique-o primeiro)
+- `terraform/postgres` — provisiona o PostgreSQL dentro do cluster (StatefulSet + PVC + Service), ver `terraform/postgres/README.md`
+
+Após o apply, publique os outputs `aws_region`, `ecr_repository`, `eks_cluster_name`, `runtime_secret_id` e `github_actions_role_arn` nas Variables/Environments do GitHub conforme a tabela acima.

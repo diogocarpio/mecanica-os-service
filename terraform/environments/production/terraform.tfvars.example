@@ -1,0 +1,15 @@
+aws_region                  = "us-east-1"
+vpc_cidr                    = "10.50.0.0/16"
+az_count                    = 3
+private_subnets             = ["10.50.0.0/19", "10.50.32.0/19", "10.50.64.0/19"]
+public_subnets              = ["10.50.96.0/22", "10.50.100.0/22", "10.50.104.0/22"]
+single_nat_gateway          = false
+eks_version                 = "1.31"
+node_instance_types         = ["t3.large"]
+node_capacity_type          = "ON_DEMAND"
+node_min_size               = 3
+node_max_size               = 10
+node_desired_size           = 3
+ecr_image_retention         = 60
+secret_recovery_window_days = 30
+github_repository           = "diogocarpio/mecanica-os-service"

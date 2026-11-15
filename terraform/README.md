@@ -1,79 +1,41 @@
-# Terraform - Infraestrutura do Banco de Dados OS Service
+# Terraform
 
-Este diretório contém a infraestrutura como código (Terraform) para provisionar o banco de dados PostgreSQL do OS Service no Kubernetes.
+Esta camada provisiona a infraestrutura AWS do serviço:
 
-## Pré-requisitos
+- VPC multi-AZ e subnets para EKS;
+- cluster EKS, node group e addons essenciais;
+- repositório ECR;
+- segredo de runtime no Secrets Manager, sem versionar valores;
+- OIDC do GitHub Actions e role de CI/CD;
+- integração de acesso da role ao EKS.
 
-- Terraform >= 1.0
-- kubectl configurado
-- Cluster Kubernetes local (Kind, Minikube, K3d) ou remoto
+MongoDB e RabbitMQ são externos. O Terraform cria somente o contrato do segredo
+no Secrets Manager; o valor deve ser preenchido por um processo seguro fora do
+código e do pipeline de infraestrutura.
 
-## Como usar
+## Ambientes
 
-### 1. Inicializar o Terraform
+Cada ambiente possui estado separado em `environments/staging` e
+`environments/production`. Aplique staging primeiro: ele é o owner dos recursos
+compartilhados ECR e GitHub OIDC; production consulta esses recursos. Copie
+`terraform.tfvars.example`, configure os
+valores locais/seguros e passe o backend remoto no `terraform init`:
 
-```bash
-terraform init
+```powershell
+terraform -chdir=terraform/environments/staging init -backend-config=backend.hcl
+terraform -chdir=terraform/environments/staging plan -var-file=terraform.tfvars
+terraform -chdir=terraform/environments/staging apply -var-file=terraform.tfvars
 ```
 
-### 2. Configurar variáveis
+O bucket S3 e a tabela DynamoDB do backend devem ser criados primeiro pelo
+bootstrap em `terraform/bootstrap`. O bootstrap usa estado local inicialmente;
+proteja o arquivo de variáveis e não coloque credenciais no repositório.
 
-Copie o arquivo de exemplo:
+Após o apply, publique os outputs `aws_region`, `ecr_repository`,
+`eks_cluster_name`, `runtime_secret_id` e `github_actions_role_arn` nas
+Variables dos GitHub Environments/shared variables já esperadas pelo workflow.
 
-```bash
-cp terraform.tfvars.example terraform.tfvars
-```
-
-Edite o arquivo `terraform.tfvars` com suas configurações.
-
-### 3. Validar a configuração
-
-```bash
-terraform validate
-```
-
-### 4. Planejar as mudanças
-
-```bash
-terraform plan
-```
-
-### 5. Aplicar a infraestrutura
-
-```bash
-terraform apply
-```
-
-### 6. Destruir a infraestrutura
-
-```bash
-terraform destroy
-```
-
-## Recursos criados
-
-- **Namespace**: `os-service-db`
-- **StatefulSet**: PostgreSQL 15 com 1 réplica
-- **Service**: ClusterIP para acesso interno
-- **Secret**: Credenciais do banco
-- **PVC**: Volume persistente (10Gi por padrão)
-- **ConfigMap**: Configuração do DATABASE_URL para o OS Service
-
-## Variáveis
-
-| Variável | Descrição | Padrão |
-|----------|-----------|--------|
-| `kubeconfig_path` | Path do kubeconfig | `~/.kube/config` |
-| `db_name` | Nome do banco | `os_service_db` |
-| `db_username` | Usuário do banco | `os_service_user` |
-| `db_password` | Senha do banco | `os_service_password` |
-| `storage_class_name` | Storage class | `standard` |
-| `storage_size` | Tamanho do volume | `10Gi` |
-
-## Outputs
-
-- `postgres_service_name`: Nome do serviço PostgreSQL
-- `postgres_namespace`: Namespace do PostgreSQL
-- `postgres_host`: Host do PostgreSQL
-- `postgres_port`: Porta do PostgreSQL
-- `database_url`: URL JDBC completa
+O Terraform não aplica a imagem da aplicação nem os overlays Kustomize. O
+workflow existente continua responsável por publicar a imagem, ler o segredo de
+runtime e executar o deploy em staging/production. O job de publicação usa o
+Environment `staging` para assumir a role que possui acesso ao ECR compartilhado.
