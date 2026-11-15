@@ -42,7 +42,15 @@ spec:
               name: os-service-secret
               key: DATABASE_PASSWORD
         - name: RABBITMQ_HOST
-          value: "rabbitmq.rabbitmq.svc.cluster.local"
+          valueFrom:
+            secretKeyRef:
+              name: os-service-secret
+              key: RABBITMQ_HOST
+        - name: RABBITMQ_PORT
+          valueFrom:
+            secretKeyRef:
+              name: os-service-secret
+              key: RABBITMQ_PORT
         - name: RABBITMQ_USERNAME
           valueFrom:
             secretKeyRef:

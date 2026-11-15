@@ -77,7 +77,7 @@ resource "kubernetes_stateful_set" "postgres" {
           }
 
           env {
-            name  = "POSTGRES_PASSWORD"
+            name = "POSTGRES_PASSWORD"
             value_from {
               secret_key_ref {
                 name = "os-service-postgres-secret"
@@ -116,7 +116,7 @@ resource "kubernetes_stateful_set" "postgres" {
       }
 
       spec {
-        access_modes = ["ReadWriteOnce"]
+        access_modes       = ["ReadWriteOnce"]
         storage_class_name = var.storage_class_name
 
         resources {
