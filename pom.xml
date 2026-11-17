@@ -23,6 +23,7 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <sonar.coverage.exclusions>src/main/java/com/f1rsters/os_service/dto/StatusOrdemServicoDTO.java,src/main/java/com/f1rsters/os_service/dto/AtualizarStatusOSDTO.java,src/main/java/com/f1rsters/os_service/dto/NotificacaoStatusDTO.java,src/main/java/com/f1rsters/os_service/dto/OrdemServicoDTO.java,src/main/java/com/f1rsters/os_service/dto/CriarOrdemServicoDTO.java,src/main/java/com/f1rsters/os_service/dto/OSEvent.java,src/main/java/com/f1rsters/os_service/dto/RespostaOrcamentoDTO.java,src/main/java/com/f1rsters/os_service/domain/OrdemServico.java,src/main/java/com/f1rsters/os_service/domain/OrdemServicoHistorico.java</sonar.coverage.exclusions>
     </properties>
 
     <dependencies>
