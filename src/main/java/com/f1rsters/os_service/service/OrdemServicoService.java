@@ -1,9 +1,14 @@
 package com.f1rsters.os_service.service;
 
+import com.f1rsters.os_service.config.RabbitMQConfig;
 import com.f1rsters.os_service.domain.OrdemServico;
 import com.f1rsters.os_service.domain.OrdemServicoHistorico;
 import com.f1rsters.os_service.domain.StatusOrdemServico;
 import com.f1rsters.os_service.dto.*;
+import com.f1rsters.os_service.dto.billing.IntegrationEvent;
+import com.f1rsters.os_service.dto.billing.OsCancelledPayload;
+import com.f1rsters.os_service.dto.billing.QuoteItemPayload;
+import com.f1rsters.os_service.dto.billing.QuoteRequestedPayload;
 import com.f1rsters.os_service.exception.OrdemServicoNaoEncontradaException;
 import com.f1rsters.os_service.repository.OrdemServicoHistoricoRepository;
 import com.f1rsters.os_service.repository.OrdemServicoRepository;
@@ -19,7 +24,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class OrdemServicoService {
@@ -136,6 +145,7 @@ public class OrdemServicoService {
 
             // Publicar evento para o Billing Service gerar orçamento
             publishOSEvent(created, "os.created");
+            publishBillingQuoteRequested(created);
 
             osCreatedTotalCounter.increment();
             criarOrdemSuccessCounter.increment();
@@ -391,6 +401,7 @@ public class OrdemServicoService {
             os.setStatus(StatusOrdemServico.CANCELADA);
             OrdemServico updated = repo.save(os);
             publishOSEvent(updated, "os.cancelled");
+            publishBillingOsCancelled(updated, motivo);
 
             recordStatusTransition(updated, statusAnterior, StatusOrdemServico.CANCELADA);
             registrarHistorico(updated.getId(), statusAnterior, StatusOrdemServico.CANCELADA, "CANCELAMENTO", motivo);
@@ -411,16 +422,6 @@ public class OrdemServicoService {
         StatusOrdemServico statusAnterior = os.getStatus();
 
         switch (event.getEventType()) {
-            case "orcamento.aprovado" -> {
-                validarTransicaoStatus(statusAnterior, StatusOrdemServico.EM_EXECUCAO, event.getOsId());
-                os.setStatus(StatusOrdemServico.EM_EXECUCAO);
-                publishOSEvent(os, "os.approved");
-            }
-            case "orcamento.rejeitado" -> {
-                validarTransicaoStatus(statusAnterior, StatusOrdemServico.CANCELADA, event.getOsId());
-                os.setStatus(StatusOrdemServico.CANCELADA);
-                publishOSEvent(os, "os.cancelled");
-            }
             case "execution.completed" -> {
                 validarTransicaoStatus(statusAnterior, StatusOrdemServico.FINALIZADA, event.getOsId());
                 os.setStatus(StatusOrdemServico.FINALIZADA);
@@ -437,6 +438,60 @@ public class OrdemServicoService {
         recordStatusTransition(updated, statusAnterior, updated.getStatus());
         if (!statusAnterior.equals(updated.getStatus())) {
             registrarHistorico(updated.getId(), statusAnterior, updated.getStatus(), "SAGA:" + event.getEventType(), null);
+        }
+        return updated;
+    }
+
+    @Transactional
+    public OrdemServico processarEventoBilling(String eventType, Long osId, String motivo) {
+        if (eventType == null || osId == null) {
+            throw new IllegalArgumentException("Evento de billing inválido");
+        }
+
+        OrdemServico os = repo.findById(osId)
+                .orElseThrow(() -> new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA));
+        StatusOrdemServico statusAnterior = os.getStatus();
+
+        switch (eventType) {
+            case "billing.quote.submitted.v1" -> {
+                if (statusAnterior == StatusOrdemServico.RECEBIDA
+                        || statusAnterior == StatusOrdemServico.DIAGNOSTICO) {
+                    os.setStatus(StatusOrdemServico.AGUARDANDO_APROVACAO);
+                }
+            }
+            case "billing.quote.approved.v1" -> {
+                if (statusAnterior == StatusOrdemServico.EM_EXECUCAO
+                        || statusAnterior == StatusOrdemServico.FINALIZADA
+                        || statusAnterior == StatusOrdemServico.ENTREGUE) {
+                    return os;
+                }
+                if (statusAnterior == StatusOrdemServico.RECEBIDA
+                        || statusAnterior == StatusOrdemServico.DIAGNOSTICO) {
+                    os.setStatus(StatusOrdemServico.AGUARDANDO_APROVACAO);
+                }
+                validarTransicaoStatus(os.getStatus(), StatusOrdemServico.EM_EXECUCAO, osId);
+                os.setStatus(StatusOrdemServico.EM_EXECUCAO);
+                publishOSEvent(os, "os.approved");
+            }
+            case "billing.quote.rejected.v1", "billing.quote.failed.v1" -> {
+                if (statusAnterior == StatusOrdemServico.CANCELADA) {
+                    return os;
+                }
+                validarTransicaoStatus(statusAnterior, StatusOrdemServico.CANCELADA, osId);
+                os.setStatus(StatusOrdemServico.CANCELADA);
+                publishOSEvent(os, "os.cancelled");
+                publishBillingOsCancelled(os, motivo);
+            }
+            default -> {
+                log.warn("Evento de billing não mapeado: {}", eventType);
+                return os;
+            }
+        }
+
+        OrdemServico updated = repo.save(os);
+        if (!statusAnterior.equals(updated.getStatus())) {
+            recordStatusTransition(updated, statusAnterior, updated.getStatus());
+            registrarHistorico(updated.getId(), statusAnterior, updated.getStatus(), "SAGA:" + eventType, motivo);
         }
         return updated;
     }
@@ -500,6 +555,53 @@ public class OrdemServicoService {
         } catch (Exception e) {
             log.error("Erro ao publicar evento: eventType={}, osId={}", eventType, os.getId(), e);
         }
+    }
+
+    private void publishBillingQuoteRequested(OrdemServico os) {
+        try {
+            List<QuoteItemPayload> items = new ArrayList<>();
+            if (os.getServicosIds() != null) {
+                for (String servicoId : os.getServicosIds()) {
+                    items.add(new QuoteItemPayload("Servico " + servicoId, "LABOR",
+                            BigDecimal.ONE, BigDecimal.ZERO));
+                }
+            }
+            if (os.getPecasIds() != null) {
+                for (String pecaId : os.getPecasIds()) {
+                    items.add(new QuoteItemPayload("Peca " + pecaId, "PART",
+                            BigDecimal.ONE, BigDecimal.ZERO));
+                }
+            }
+            QuoteRequestedPayload payload = new QuoteRequestedPayload(
+                    os.getClienteId(), items, "BRL", Instant.now().plus(7, ChronoUnit.DAYS));
+            publishBillingEvent("os.quote.requested.v1", os.getId(), payload);
+        } catch (Exception e) {
+            log.error("Erro ao publicar os.quote.requested.v1: osId={}", os.getId(), e);
+        }
+    }
+
+    private void publishBillingOsCancelled(OrdemServico os, String motivo) {
+        try {
+            publishBillingEvent("os.cancelled.v1", os.getId(),
+                    new OsCancelledPayload(motivo, Instant.now()));
+        } catch (Exception e) {
+            log.error("Erro ao publicar os.cancelled.v1: osId={}", os.getId(), e);
+        }
+    }
+
+    private void publishBillingEvent(String eventType, Long osId, Object payload) {
+        IntegrationEvent<Object> event = new IntegrationEvent<>(
+                UUID.randomUUID(),
+                eventType,
+                1,
+                Instant.now(),
+                "os-service",
+                osId.toString(),
+                null,
+                osId.toString(),
+                payload);
+        rabbitTemplate.convertAndSend(RabbitMQConfig.MECANICA_EVENTS_EXCHANGE, eventType, event);
+        log.info("Evento de billing publicado: eventType={}, osId={}", eventType, osId);
     }
 
     private void recordFailure(String operation, String errorType, Long osId) {

@@ -1,0 +1,47 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: e2e-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: e2e-postgres
+    environment:
+      POSTGRES_DB: os_service_db
+      POSTGRES_USER: os_service_user
+      POSTGRES_PASSWORD: os_service_password
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U os_service_user -d os_service_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  mongo:
+    image: mongo:7
+    container_name: e2e-mongo
+    command: mongod --replSet rs0 --bind_ip_all
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  mongo-init:
+    image: mongo:7
+    container_name: e2e-mongo-init
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint: ["mongosh", "--host", "mongo:27017", "--quiet", "--eval", "try { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}) } catch(e) { print('rs:', e.message) }"]
