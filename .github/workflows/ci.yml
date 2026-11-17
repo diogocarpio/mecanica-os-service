@@ -27,6 +27,10 @@ jobs:
           cache: maven
       - name: Run tests and coverage
         run: mvn -B verify
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: SonarCloud analysis
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
