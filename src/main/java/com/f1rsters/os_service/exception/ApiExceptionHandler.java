@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -27,7 +28,7 @@ public class ApiExceptionHandler {
         });
 
         Map<String, Object> response = new HashMap<>();
-        response.put("timestamp", LocalDateTime.now());
+        response.put("timestamp", LocalDateTime.now(ZoneId.systemDefault()));
         response.put("status", HttpStatus.BAD_REQUEST.value());
         response.put("error", "Validation Error");
         response.put("message", "Erro de validação nos campos");
@@ -44,7 +45,7 @@ public class ApiExceptionHandler {
         Throwable cause = ex;
         while (cause != null) {
             if (cause instanceof OrdemServicoNaoEncontradaException) {
-                response.put("timestamp", LocalDateTime.now());
+                response.put("timestamp", LocalDateTime.now(ZoneId.systemDefault()));
                 response.put("status", HttpStatus.NOT_FOUND.value());
                 response.put("error", "Not Found");
                 response.put("message", cause.getMessage());
@@ -55,7 +56,7 @@ public class ApiExceptionHandler {
             cause = cause.getCause();
         }
 
-        response.put("timestamp", LocalDateTime.now());
+        response.put("timestamp", LocalDateTime.now(ZoneId.systemDefault()));
         response.put("status", HttpStatus.BAD_REQUEST.value());
         response.put("error", "Bad Request");
         response.put("message", ex.getMessage());
@@ -67,7 +68,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
         Map<String, Object> response = new HashMap<>();
-        response.put("timestamp", LocalDateTime.now());
+        response.put("timestamp", LocalDateTime.now(ZoneId.systemDefault()));
         response.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
         response.put("error", "Internal Server Error");
         response.put("message", "Erro interno no servidor");

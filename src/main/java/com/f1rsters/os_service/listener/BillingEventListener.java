@@ -24,13 +24,13 @@ public class BillingEventListener {
     @RabbitListener(queues = "os.billing.quote-submitted.queue")
     public void onQuoteSubmitted(IntegrationEvent<QuoteSubmittedPayload> event) {
         log.info("Evento billing.quote.submitted recebido: osId={}, eventId={}", event.getOsId(), event.getEventId());
-        service.processarEventoBilling("billing.quote.submitted.v1", parseOsId(event), null);
+        dispatch("billing.quote.submitted.v1", event, null);
     }
 
     @RabbitListener(queues = "os.billing.quote-approved.queue")
     public void onQuoteApproved(IntegrationEvent<QuoteApprovedPayload> event) {
         log.info("Evento billing.quote.approved recebido: osId={}, eventId={}", event.getOsId(), event.getEventId());
-        service.processarEventoBilling("billing.quote.approved.v1", parseOsId(event), null);
+        dispatch("billing.quote.approved.v1", event, null);
     }
 
     @RabbitListener(queues = "os.billing.quote-rejected.queue")
@@ -38,7 +38,7 @@ public class BillingEventListener {
         String motivo = event.getPayload() != null ? event.getPayload().getReason() : null;
         log.info("Evento billing.quote.rejected recebido: osId={}, eventId={}, motivo={}",
                 event.getOsId(), event.getEventId(), motivo);
-        service.processarEventoBilling("billing.quote.rejected.v1", parseOsId(event), motivo);
+        dispatch("billing.quote.rejected.v1", event, motivo);
     }
 
     @RabbitListener(queues = "os.billing.quote-failed.queue")
@@ -48,10 +48,27 @@ public class BillingEventListener {
                 : null;
         log.info("Evento billing.quote.failed recebido: osId={}, eventId={}, motivo={}",
                 event.getOsId(), event.getEventId(), motivo);
-        service.processarEventoBilling("billing.quote.failed.v1", parseOsId(event), motivo);
+        dispatch("billing.quote.failed.v1", event, motivo);
+    }
+
+    private void dispatch(String eventType, IntegrationEvent<?> event, String motivo) {
+        Long osId = parseOsId(event);
+        if (osId == null) {
+            log.warn("Evento {} ignorado: osId ausente ou inválido: {}", eventType, event.getOsId());
+            return;
+        }
+        service.processarEventoBilling(eventType, osId, motivo);
     }
 
     private Long parseOsId(IntegrationEvent<?> event) {
-        return event.getOsId() != null ? Long.valueOf(event.getOsId()) : null;
+        if (event.getOsId() == null || event.getOsId().isBlank()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(event.getOsId());
+        } catch (NumberFormatException e) {
+            log.warn("osId não numérico no evento: {}", event.getOsId());
+            return null;
+        }
     }
 }
