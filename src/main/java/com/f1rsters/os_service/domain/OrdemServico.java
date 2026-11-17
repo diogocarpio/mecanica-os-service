@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 @Data
@@ -47,12 +48,12 @@ public class OrdemServico {
 
     @PrePersist
     protected void onCreate() {
-        criadoEm = LocalDateTime.now();
-        atualizadoEm = LocalDateTime.now();
+        criadoEm = LocalDateTime.now(ZoneId.systemDefault());
+        atualizadoEm = LocalDateTime.now(ZoneId.systemDefault());
     }
 
     @PreUpdate
     protected void onUpdate() {
-        atualizadoEm = LocalDateTime.now();
+        atualizadoEm = LocalDateTime.now(ZoneId.systemDefault());
     }
 }
