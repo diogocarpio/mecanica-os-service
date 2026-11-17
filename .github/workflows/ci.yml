@@ -55,11 +55,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: test-and-coverage-reports
+          path: target
       - name: SonarCloud analysis
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
+          SONAR_QG_WAIT: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
         with:
           args: >-
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
@@ -67,7 +69,7 @@ jobs:
             -Dsonar.java.binaries=target/classes
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
             -Dsonar.tests=src/test
-            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.wait=${{ env.SONAR_QG_WAIT }}
       - name: Fortify Scan
         uses: fortify/github-action@v3
         env:
