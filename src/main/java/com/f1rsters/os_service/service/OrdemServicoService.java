@@ -297,11 +297,8 @@ public class OrdemServicoService {
 
             StatusOrdemServico statusAnterior = os.getStatus();
             if (dto.aprovado) {
-                os.setStatus(StatusOrdemServico.EM_EXECUCAO);
-                log.info("Orçamento aprovado: id={}, novoStatus=EM_EXECUCAO", id);
-
-                // Publicar evento para o Execution Service
-                publishOSEvent(os, "os.approved");
+                os.setStatus(StatusOrdemServico.AGUARDANDO_PAGAMENTO);
+                log.info("Orçamento aprovado: id={}, novoStatus=AGUARDANDO_PAGAMENTO", id);
             } else {
                 log.info("Orçamento recusado: id={}, status mantido=AGUARDANDO_APROVACAO", id);
             }
@@ -460,7 +457,8 @@ public class OrdemServicoService {
                 }
             }
             case "billing.quote.approved.v1" -> {
-                if (statusAnterior == StatusOrdemServico.EM_EXECUCAO
+                if (statusAnterior == StatusOrdemServico.AGUARDANDO_PAGAMENTO
+                        || statusAnterior == StatusOrdemServico.EM_EXECUCAO
                         || statusAnterior == StatusOrdemServico.FINALIZADA
                         || statusAnterior == StatusOrdemServico.ENTREGUE) {
                     return os;
@@ -469,9 +467,8 @@ public class OrdemServicoService {
                         || statusAnterior == StatusOrdemServico.DIAGNOSTICO) {
                     os.setStatus(StatusOrdemServico.AGUARDANDO_APROVACAO);
                 }
-                validarTransicaoStatus(os.getStatus(), StatusOrdemServico.EM_EXECUCAO, osId);
-                os.setStatus(StatusOrdemServico.EM_EXECUCAO);
-                publishOSEvent(os, "os.approved");
+                validarTransicaoStatus(os.getStatus(), StatusOrdemServico.AGUARDANDO_PAGAMENTO, osId);
+                os.setStatus(StatusOrdemServico.AGUARDANDO_PAGAMENTO);
             }
             case "billing.quote.rejected.v1", "billing.quote.failed.v1" -> {
                 if (statusAnterior == StatusOrdemServico.CANCELADA) {
@@ -484,6 +481,57 @@ public class OrdemServicoService {
             }
             default -> {
                 log.warn("Evento de billing não mapeado: {}", eventType);
+                return os;
+            }
+        }
+
+        OrdemServico updated = repo.save(os);
+        if (!statusAnterior.equals(updated.getStatus())) {
+            recordStatusTransition(updated, statusAnterior, updated.getStatus());
+            registrarHistorico(updated.getId(), statusAnterior, updated.getStatus(), "SAGA:" + eventType, motivo);
+        }
+        return updated;
+    }
+
+    @Transactional
+    public OrdemServico processarEventoPagamento(String eventType, Long osId, String motivo) {
+        if (eventType == null || osId == null) {
+            throw new IllegalArgumentException("Evento de pagamento inválido");
+        }
+
+        OrdemServico os = repo.findById(osId)
+                .orElseThrow(() -> new OrdemServicoNaoEncontradaException(OS_NAO_ENCONTRADA));
+        StatusOrdemServico statusAnterior = os.getStatus();
+
+        switch (eventType) {
+            case "billing.payment.pending.v1" ->
+                log.info("Pagamento pendente para OS {}: status mantido {}", osId, statusAnterior);
+            case "billing.payment.approved.v1" -> {
+                if (statusAnterior == StatusOrdemServico.EM_EXECUCAO
+                        || statusAnterior == StatusOrdemServico.FINALIZADA
+                        || statusAnterior == StatusOrdemServico.ENTREGUE) {
+                    return os;
+                }
+                if (statusAnterior == StatusOrdemServico.RECEBIDA
+                        || statusAnterior == StatusOrdemServico.DIAGNOSTICO
+                        || statusAnterior == StatusOrdemServico.AGUARDANDO_APROVACAO) {
+                    os.setStatus(StatusOrdemServico.AGUARDANDO_PAGAMENTO);
+                }
+                validarTransicaoStatus(os.getStatus(), StatusOrdemServico.EM_EXECUCAO, osId);
+                os.setStatus(StatusOrdemServico.EM_EXECUCAO);
+                publishOSEvent(os, "os.approved");
+            }
+            case "billing.payment.rejected.v1", "billing.payment.failed.v1" -> {
+                if (statusAnterior == StatusOrdemServico.CANCELADA) {
+                    return os;
+                }
+                validarTransicaoStatus(statusAnterior, StatusOrdemServico.CANCELADA, osId);
+                os.setStatus(StatusOrdemServico.CANCELADA);
+                publishOSEvent(os, "os.cancelled");
+                publishBillingOsCancelled(os, motivo);
+            }
+            default -> {
+                log.warn("Evento de pagamento não mapeado: {}", eventType);
                 return os;
             }
         }
@@ -526,7 +574,8 @@ public class OrdemServicoService {
         boolean transicaoValida = switch (statusAnterior) {
             case RECEBIDA -> novoStatus == StatusOrdemServico.DIAGNOSTICO || novoStatus == StatusOrdemServico.AGUARDANDO_APROVACAO || novoStatus == StatusOrdemServico.CANCELADA;
             case DIAGNOSTICO -> novoStatus == StatusOrdemServico.AGUARDANDO_APROVACAO || novoStatus == StatusOrdemServico.CANCELADA;
-            case AGUARDANDO_APROVACAO -> novoStatus == StatusOrdemServico.EM_EXECUCAO || novoStatus == StatusOrdemServico.CANCELADA;
+            case AGUARDANDO_APROVACAO -> novoStatus == StatusOrdemServico.AGUARDANDO_PAGAMENTO || novoStatus == StatusOrdemServico.CANCELADA;
+            case AGUARDANDO_PAGAMENTO -> novoStatus == StatusOrdemServico.EM_EXECUCAO || novoStatus == StatusOrdemServico.CANCELADA;
             case EM_EXECUCAO -> novoStatus == StatusOrdemServico.FINALIZADA || novoStatus == StatusOrdemServico.CANCELADA;
             case FINALIZADA -> novoStatus == StatusOrdemServico.ENTREGUE || novoStatus == StatusOrdemServico.CANCELADA;
             case ENTREGUE -> false;

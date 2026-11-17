@@ -132,7 +132,7 @@ class OrdemServicoControllerTest {
 
         OrdemServico os = new OrdemServico();
         os.setId(id);
-        os.setStatus(StatusOrdemServico.EM_EXECUCAO);
+        os.setStatus(StatusOrdemServico.AGUARDANDO_PAGAMENTO);
 
         when(service.processarRespostaOrcamento(eq(id), any(RespostaOrcamentoDTO.class))).thenReturn(os);
 
@@ -141,7 +141,7 @@ class OrdemServicoControllerTest {
                 .content(objectMapper.writeValueAsString(dto)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id))
-                .andExpect(jsonPath("$.status").value("EM_EXECUCAO"));
+                .andExpect(jsonPath("$.status").value("AGUARDANDO_PAGAMENTO"));
     }
 
     @Test
