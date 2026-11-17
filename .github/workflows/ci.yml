@@ -61,7 +61,7 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
-          SONAR_QG_WAIT: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
+          SONAR_QG_WAIT: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
         with:
           args: >-
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
