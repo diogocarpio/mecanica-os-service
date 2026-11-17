@@ -6,15 +6,18 @@ Este documento define o contrato dos eventos usados no fluxo de ordens de servi�
 
 ## Estratégia adotada
 
-Padrão Saga por orquestração.
+Padrão **Saga coreografada**, via eventos do RabbitMQ. Não existe um orquestrador central: cada microsserviço executa sua transação local de forma independente e reage aos eventos publicados pelos demais.
 
-O OS Service atua como ponto central da ordem de serviço e coordena o fluxo principal:
+O fluxo é coordenado de forma descentralizada:
 
-1. Criação da OS
-2. Solicitação de orçamento ao Billing
-3. Aprovação do orçamento
-4. Execução do serviço
-5. Compensação em caso de falha
+1. Criação da OS (OS Service publica `os.quote.requested.v1`)
+2. Solicitação de orçamento ao Billing (Billing consome e decide localmente)
+3. Aprovação do orçamento (Billing publica `billing.quote.approved.v1`/`rejected.v1`)
+4. Pagamento do orçamento (Billing publica `billing.payment.*.v1`; OS só libera a execução após `billing.payment.approved.v1`)
+5. Execução do serviço (OS publica `os.approved`; Execution consome e executa)
+6. Compensação em caso de falha (eventos compensatórios `os.cancelled`/`os.cancelled.v1`)
+
+O OS Service é o **dono do ciclo de vida da OS** (fonte da verdade do status), mas não comanda os outros serviços: ele publica fatos e reage a eventos. A coordenação emerge da máquina de estados do OS combinada com os contratos de eventos abaixo.
 
 ## Canais de mensageria
 
@@ -78,13 +81,13 @@ Envelope versionado exigido pelo Billing Service:
 A ordem deve seguir este ciclo principal:
 
 ```text
-RECEBIDA -> AGUARDANDO_APROVACAO -> EM_EXECUCAO -> FINALIZADA
+RECEBIDA -> AGUARDANDO_APROVACAO -> AGUARDANDO_PAGAMENTO -> EM_EXECUCAO -> FINALIZADA
 ```
 
 Em caso de falha ou compensação:
 
 ```text
-RECEBIDA / DIAGNOSTICO / AGUARDANDO_APROVACAO / EM_EXECUCAO -> CANCELADA
+RECEBIDA / DIAGNOSTICO / AGUARDANDO_APROVACAO / AGUARDANDO_PAGAMENTO / EM_EXECUCAO -> CANCELADA
 ```
 
 Os estados previstos pelo serviço são:
@@ -92,6 +95,7 @@ Os estados previstos pelo serviço são:
 - RECEBIDA
 - DIAGNOSTICO
 - AGUARDANDO_APROVACAO
+- AGUARDANDO_PAGAMENTO
 - EM_EXECUCAO
 - FINALIZADA
 - ENTREGUE
@@ -182,9 +186,9 @@ Payload (`QuoteApprovedPayload`):
 ```
 
 Ação esperada no OS Service:
-- atualiza o status da OS para `EM_EXECUCAO` (com auto-avanço de `RECEBIDA`/`DIAGNOSTICO` para `AGUARDANDO_APROVACAO` se necessário)
-- é idempotente: ignora se a OS já está `EM_EXECUCAO`, `FINALIZADA` ou `ENTREGUE`
-- publica `os.approved` no `os.exchange`
+- atualiza o status da OS para `AGUARDANDO_PAGAMENTO` (com auto-avanço de `RECEBIDA`/`DIAGNOSTICO` para `AGUARDANDO_APROVACAO` se necessário)
+- **não** publica `os.approved` — a execução só é liberada após a confirmação do pagamento (`billing.payment.approved.v1`)
+- é idempotente: ignora se a OS já está `AGUARDANDO_PAGAMENTO`, `EM_EXECUCAO`, `FINALIZADA` ou `ENTREGUE`
 
 ---
 
@@ -236,12 +240,95 @@ Ação esperada: mesma de `billing.quote.rejected.v1` (OS -> `CANCELADA` + compe
 
 ---
 
-### 6) os.approved (OS -> Execution)
+### 6) billing.payment.pending.v1 (Billing -> OS)
+
+- Exchange: `mecanica.events`
+- Publicado por: Billing Service
+- Consumido por: OS Service (fila `os.billing.payment-pending.queue`)
+- Quando: o link/preferência de pagamento é criado (pagamento `PENDING`)
+- Descrição: informa que o pagamento está em processamento
+
+Payload (`PaymentStatusChangedPayload`):
+
+```json
+{
+  "paymentId": "uuid-do-pagamento",
+  "quoteId": "uuid-do-orcamento",
+  "amount": 0.00,
+  "currency": "BRL",
+  "status": "PENDING",
+  "externalPaymentId": "id-no-provedor",
+  "providerStatus": "pending",
+  "changedAt": "2026-11-16T20:06:00Z"
+}
+```
+
+Ação esperada no OS Service: nenhuma mudança de status — a OS permanece em `AGUARDANDO_PAGAMENTO`.
+
+---
+
+### 7) billing.payment.approved.v1 (Billing -> OS)
+
+- Exchange: `mecanica.events`
+- Publicado por: Billing Service
+- Consumido por: OS Service (fila `os.billing.payment-approved.queue`)
+- Quando: o pagamento é confirmado pelo provedor (Mercado Pago)
+- Descrição: libera a OS para execução
+
+Payload: mesmo `PaymentStatusChangedPayload` com `status: "APPROVED"`.
+
+Ação esperada no OS Service:
+- atualiza o status da OS para `EM_EXECUCAO` (com auto-avanço de `RECEBIDA`/`DIAGNOSTICO`/`AGUARDANDO_APROVACAO` para `AGUARDANDO_PAGAMENTO` se necessário)
+- publica `os.approved` no `os.exchange` (Execution inicia o serviço)
+- é idempotente: ignora se a OS já está `EM_EXECUCAO`, `FINALIZADA` ou `ENTREGUE`
+
+---
+
+### 8) billing.payment.rejected.v1 (Billing -> OS)
+
+- Exchange: `mecanica.events`
+- Publicado por: Billing Service
+- Consumido por: OS Service (fila `os.billing.payment-rejected.queue`)
+- Quando: o pagamento é rejeitado pelo provedor
+- Descrição: compensação do pagamento
+
+Payload: `PaymentStatusChangedPayload` com `status: "REJECTED"`.
+
+Ação esperada: mesma de `billing.quote.rejected.v1` (OS -> `CANCELADA` + `os.cancelled` + `os.cancelled.v1`).
+
+---
+
+### 9) billing.payment.failed.v1 (Billing -> OS)
+
+- Exchange: `mecanica.events`
+- Publicado por: Billing Service
+- Consumido por: OS Service (fila `os.billing.payment-failed.queue`)
+- Quando: falha na criação ou processamento do pagamento
+- Descrição: compensação do pagamento
+
+Payload (`PaymentFailedPayload`):
+
+```json
+{
+  "paymentId": "uuid-do-pagamento",
+  "quoteId": "uuid-do-orcamento",
+  "status": "ERROR",
+  "code": "MERCADO_PAGO_ERROR",
+  "message": "detalhe do erro",
+  "failedAt": "2026-11-16T20:07:00Z"
+}
+```
+
+Ação esperada: mesma de `billing.quote.rejected.v1` (OS -> `CANCELADA` + compensações).
+
+---
+
+### 10) os.approved (OS -> Execution)
 
 - Exchange: `os.exchange`
 - Publicado por: OS Service
 - Consumido por: Execution Service (fila `execution.os.approved.queue`)
-- Quando: a aprovação do orçamento foi processada
+- Quando: o pagamento foi aprovado (`billing.payment.approved.v1` processado)
 - Descrição: sinaliza que a execução pode iniciar
 
 Payload: `OSEvent` com `status: "EM_EXECUCAO"` e `eventType: "os.approved"`.
@@ -251,7 +338,7 @@ Ação esperada:
 
 ---
 
-### 7) execution.completed (Execution -> OS)
+### 11) execution.completed (Execution -> OS)
 
 - Exchange: `os.exchange`
 - Publicado por: Execution Service
@@ -267,7 +354,7 @@ Ação esperada no OS Service:
 
 ---
 
-### 8) os.cancelled (OS -> Execution / consumidores)
+### 12) os.cancelled (OS -> Execution / consumidores)
 
 - Exchange: `os.exchange`
 - Publicado por: OS Service
@@ -279,7 +366,7 @@ Payload: `OSEvent` com `status: "CANCELADA"` e `eventType: "os.cancelled"`.
 
 ---
 
-### 9) os.cancelled.v1 (OS -> Billing)
+### 13) os.cancelled.v1 (OS -> Billing)
 
 - Exchange: `mecanica.events`
 - Publicado por: OS Service
@@ -298,7 +385,7 @@ Payload (`OsCancelledPayload`):
 
 ---
 
-### 10) os.status.updated (OS -> monitoramento)
+### 14) os.status.updated (OS -> monitoramento)
 
 - Exchange: `os.exchange`
 - Publicado por: OS Service
@@ -316,7 +403,8 @@ Payload: `OSEvent` com o status atualizado.
 |---|---|
 | RECEBIDA | DIAGNOSTICO, AGUARDANDO_APROVACAO, CANCELADA |
 | DIAGNOSTICO | AGUARDANDO_APROVACAO, CANCELADA |
-| AGUARDANDO_APROVACAO | EM_EXECUCAO, CANCELADA |
+| AGUARDANDO_APROVACAO | AGUARDANDO_PAGAMENTO, CANCELADA |
+| AGUARDANDO_PAGAMENTO | EM_EXECUCAO, CANCELADA |
 | EM_EXECUCAO | FINALIZADA, CANCELADA |
 | FINALIZADA | ENTREGUE, CANCELADA |
 | ENTREGUE | nenhuma |
@@ -324,7 +412,7 @@ Payload: `OSEvent` com o status atualizado.
 
 Qualquer outra transição deve ser rejeitada como inválida.
 
-O tratamento de eventos do Billing (`processarEventoBilling`) é idempotente e tolerante a reordenação: `billing.quote.approved.v1` auto-avança `RECEBIDA`/`DIAGNOSTICO` para `AGUARDANDO_APROVACAO` antes de ir para `EM_EXECUCAO`.
+O tratamento de eventos do Billing (`processarEventoBilling` e `processarEventoPagamento`) é idempotente e tolerante a reordenação: `billing.quote.approved.v1` auto-avança `RECEBIDA`/`DIAGNOSTICO` para `AGUARDANDO_APROVACAO` antes de ir para `AGUARDANDO_PAGAMENTO`, e `billing.payment.approved.v1` auto-avança `RECEBIDA`/`DIAGNOSTICO`/`AGUARDANDO_APROVACAO` para `AGUARDANDO_PAGAMENTO` antes de ir para `EM_EXECUCAO`.
 
 ---
 
@@ -341,6 +429,7 @@ Quando ocorre falha em alguma etapa do fluxo, o sistema deve:
 Fluxos de compensação esperados:
 
 - falha no orçamento: `billing.quote.rejected.v1` / `billing.quote.failed.v1` -> `CANCELADA` + `os.cancelled.v1`
+- falha no pagamento: `billing.payment.rejected.v1` / `billing.payment.failed.v1` -> `CANCELADA` + `os.cancelled` + `os.cancelled.v1`
 - cancelamento manual: `cancelarOrdem` -> `CANCELADA` + `os.cancelled` + `os.cancelled.v1`
 - falha na execução: evento equivalente -> `os.cancelled`
 
@@ -363,6 +452,6 @@ O contrato aqui definido garante que:
 - a ordem de serviço é rastreada em todo o fluxo
 - todos os serviços sabem qual evento foi publicado
 - a transação distribuída pode ser compensada em caso de falha
-- o OS Service mantém o controle do ciclo de vida da ordem
+- o OS Service mantém o controle do ciclo de vida da ordem (via máquina de estados + eventos, sem orquestrador central)
 
 Este contrato é o ponto de alinhamento entre o OS Service, o Billing Service e o Execution Service.

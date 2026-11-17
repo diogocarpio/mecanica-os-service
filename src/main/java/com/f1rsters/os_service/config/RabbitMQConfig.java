@@ -29,6 +29,11 @@ public class RabbitMQConfig {
     public static final String BILLING_QUOTE_REJECTED_QUEUE = "os.billing.quote-rejected.queue";
     public static final String BILLING_QUOTE_FAILED_QUEUE = "os.billing.quote-failed.queue";
 
+    public static final String BILLING_PAYMENT_PENDING_QUEUE = "os.billing.payment-pending.queue";
+    public static final String BILLING_PAYMENT_APPROVED_QUEUE = "os.billing.payment-approved.queue";
+    public static final String BILLING_PAYMENT_REJECTED_QUEUE = "os.billing.payment-rejected.queue";
+    public static final String BILLING_PAYMENT_FAILED_QUEUE = "os.billing.payment-failed.queue";
+
     @Bean
     public MessageConverter converter() {
         ObjectMapper objectMapper = new ObjectMapper();
@@ -91,6 +96,26 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public Queue billingPaymentPendingQueue() {
+        return new Queue(BILLING_PAYMENT_PENDING_QUEUE, true);
+    }
+
+    @Bean
+    public Queue billingPaymentApprovedQueue() {
+        return new Queue(BILLING_PAYMENT_APPROVED_QUEUE, true);
+    }
+
+    @Bean
+    public Queue billingPaymentRejectedQueue() {
+        return new Queue(BILLING_PAYMENT_REJECTED_QUEUE, true);
+    }
+
+    @Bean
+    public Queue billingPaymentFailedQueue() {
+        return new Queue(BILLING_PAYMENT_FAILED_QUEUE, true);
+    }
+
+    @Bean
     public Queue executionCompletedQueue() {
         return new Queue(EXECUTION_COMPLETED_QUEUE, true);
     }
@@ -147,6 +172,34 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(billingQuoteFailedQueue())
                 .to(mecanicaEventsExchange())
                 .with("billing.quote.failed.v1");
+    }
+
+    @Bean
+    public Binding billingPaymentPendingBinding() {
+        return BindingBuilder.bind(billingPaymentPendingQueue())
+                .to(mecanicaEventsExchange())
+                .with("billing.payment.pending.v1");
+    }
+
+    @Bean
+    public Binding billingPaymentApprovedBinding() {
+        return BindingBuilder.bind(billingPaymentApprovedQueue())
+                .to(mecanicaEventsExchange())
+                .with("billing.payment.approved.v1");
+    }
+
+    @Bean
+    public Binding billingPaymentRejectedBinding() {
+        return BindingBuilder.bind(billingPaymentRejectedQueue())
+                .to(mecanicaEventsExchange())
+                .with("billing.payment.rejected.v1");
+    }
+
+    @Bean
+    public Binding billingPaymentFailedBinding() {
+        return BindingBuilder.bind(billingPaymentFailedQueue())
+                .to(mecanicaEventsExchange())
+                .with("billing.payment.failed.v1");
     }
 
     @Bean

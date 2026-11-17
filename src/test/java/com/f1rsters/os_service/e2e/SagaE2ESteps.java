@@ -143,6 +143,16 @@ public class SagaE2ESteps {
         assertEquals(200, r.status(), "Complete da execução falhou: " + r.body());
     }
 
+    @Quando("eu publico o evento de pagamento aprovado no RabbitMQ")
+    public void publicarPagamentoAprovado() throws Exception {
+        publicarEventoBilling("billing.payment.approved.v1", "{}");
+    }
+
+    @Quando("eu publico o evento de pagamento rejeitado no RabbitMQ")
+    public void publicarPagamentoRejeitado() throws Exception {
+        publicarEventoBilling("billing.payment.rejected.v1", "{\"status\":\"REJECTED\"}");
+    }
+
     @Quando("eu publico o evento de cancelamento da OS no RabbitMQ")
     public void publicarCancelamento() throws Exception {
         String json = "{\"eventId\":\"" + UUID.randomUUID() + "\",\"osId\":" + osId
@@ -153,6 +163,21 @@ public class SagaE2ESteps {
         try (Connection connection = factory.newConnection();
              Channel channel = connection.createChannel()) {
             channel.basicPublish("os.exchange", "os.cancelled",
+                    new AMQP.BasicProperties.Builder().contentType("application/json").build(),
+                    json.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private void publicarEventoBilling(String eventType, String payloadJson) throws Exception {
+        String json = "{\"eventId\":\"" + UUID.randomUUID() + "\",\"eventType\":\"" + eventType
+                + "\",\"eventVersion\":1,\"occurredAt\":\"" + OffsetDateTime.now() + "\""
+                + ",\"source\":\"billing-service\",\"correlationId\":\"" + osId + "\""
+                + ",\"causationId\":null,\"osId\":\"" + osId + "\",\"payload\":" + payloadJson + "}";
+        ConnectionFactory factory = new ConnectionFactory();
+        factory.setHost(rabbitHost);
+        try (Connection connection = factory.newConnection();
+             Channel channel = connection.createChannel()) {
+            channel.basicPublish("mecanica.events", eventType,
                     new AMQP.BasicProperties.Builder().contentType("application/json").build(),
                     json.getBytes(StandardCharsets.UTF_8));
         }

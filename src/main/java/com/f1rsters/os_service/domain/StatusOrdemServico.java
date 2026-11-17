@@ -4,6 +4,7 @@ public enum StatusOrdemServico {
     RECEBIDA,
     DIAGNOSTICO,
     AGUARDANDO_APROVACAO,
+    AGUARDANDO_PAGAMENTO,
     EM_EXECUCAO,
     FINALIZADA,
     ENTREGUE,

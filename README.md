@@ -1,6 +1,6 @@
 # OS Service - Microsserviço de Gestão de Ordens de Serviço
 
-Microsserviço responsável por gerenciar as ordens de serviço (OS) do sistema de oficina mecânica. Este projeto foi estruturado para cumprir a responsabilidade do Aluno 1 do Tech Challenge Fase 4.
+Microsserviço responsável por gerenciar as ordens de serviço (OS) do sistema de oficina mecânica, no contexto do Tech Challenge Fase 4 (arquitetura de microsserviços com Saga Pattern).
 
 ## Índice
 
@@ -9,7 +9,7 @@ Microsserviço responsável por gerenciar as ordens de serviço (OS) do sistema 
 - [Responsabilidades do serviço](#responsabilidades-do-serviço)
 - [Stack tecnológica](#stack-tecnológica)
 - [Estrutura do projeto](#estrutura-do-projeto)
-- [Fluxo de Saga recomendado](#fluxo-de-saga-recomendado)
+- [Fluxo de Saga implementado](#fluxo-de-saga-implementado)
 - [Arquitetura e Saga detalhada](docs/arquitetura-saga.md)
 - [Contrato de eventos e payloads](docs/contrato-eventos-saga.md)
 - [Integração com Billing e Execution](docs/integracao-microsservicos.md)
@@ -39,7 +39,7 @@ Este serviço implementa o núcleo do fluxo de ordens de serviço:
 
 A solução foi pensada para manter o serviço independente, com banco de dados próprio, API REST e integração assíncrona com outros serviços do ecossistema.
 
-Observação importante: este repositório é o microsserviço OS Service, e não o ecossistema completo do challenge. A decisão de arquitetura abaixo foi feita para manter a solução correta e escalável para o Aluno 1.
+Observação importante: este repositório é o microsserviço OS Service, e não o ecossistema completo do challenge. A decisão de arquitetura abaixo foi feita para manter a solução correta e escalável dentro do conjunto de microsserviços do grupo.
 
 ---
 
@@ -49,7 +49,7 @@ Observação importante: este repositório é o microsserviço OS Service, e nã
 
 - Banco relacional: PostgreSQL
 - Mensageria: RabbitMQ
-- Padrão de Saga: orquestração
+- Padrão de Saga: coreografia (via eventos RabbitMQ, sem orquestrador central)
 - Comunicação: REST + eventos assíncronos
 - NoSQL no conjunto do grupo: MongoDB em outro serviço (recomendado para o Billing Service ou outro microsserviço complementar)
 
@@ -61,8 +61,8 @@ O domínio de OS exige consistência, histórico, transações e consultas por s
 #### RabbitMQ
 A comunicação assíncrona entre microsserviços é bem atendida pelo RabbitMQ, com baixo acoplamento e fácil integração com Spring Boot.
 
-#### Saga por orquestração
-Para o desafio acadêmico, orquestração é mais simples de explicar, documentar e validar. O serviço centraliza a sequência de ações e facilita o tratamento de falhas e compensação.
+#### Saga por coreografia
+O fluxo é coordenado de forma descentralizada por eventos: cada serviço executa sua transação local e reage aos eventos dos demais, sem orquestrador central. Isso reduz acoplamento, elimina ponto único de falha e mantém o OS Service como dono do ciclo de vida da OS (fonte da verdade do status). A implementação real segue essa estratégia — ver `docs/arquitetura-saga.md`.
 
 #### NoSQL no conjunto da solução
 O projeto do challenge exige, no conjunto da arquitetura, pelo menos um banco NoSQL. A recomendação é manter o NoSQL fora do OS Service, em um serviço de orçamento ou outro componente de apoio.
@@ -226,11 +226,11 @@ O projeto do monolito de referência usa `mapper` para separar conversão de ent
 
 ---
 
-## Fluxo de Saga recomendado
+## Fluxo de Saga implementado
 
-### Estratégia escolhida: orquestração
+### Estratégia escolhida: coreografia
 
-A saga será orquestrada pelo OS Service e pelos serviços de apoio do ecossistema.
+A Saga é **coreografada** via eventos do RabbitMQ — não existe orquestrador central. Cada microsserviço executa sua transação local de forma independente e reage aos eventos publicados pelos demais. O OS Service é o dono do ciclo de vida da OS (máquina de estados em `StatusOrdemServico`), mas não comanda os outros serviços: ele publica fatos e consome eventos.
 
 Fluxo principal (contratos reais implementados — ver `docs/contrato-eventos-saga.md`):
 
@@ -239,11 +239,12 @@ Fluxo principal (contratos reais implementados — ver `docs/contrato-eventos-sa
 3. Billing Service consome `os.quote.requested.v1`, gera e submete o orçamento.
 4. Billing publica `billing.quote.submitted.v1` → OS vai para `AGUARDANDO_APROVACAO`.
 5. Cliente aprova o orçamento via `POST /api/v1/quotes/{id}/approve` no Billing.
-6. Billing publica `billing.quote.approved.v1` → OS vai para `EM_EXECUCAO` e publica `os.approved`.
-7. Execution Service consome `os.approved` e executa o serviço.
-8. Execution publica `execution.completed` → OS vai para `FINALIZADA` e publica `os.status.updated`.
+6. Billing publica `billing.quote.approved.v1` → OS vai para `AGUARDANDO_PAGAMENTO`.
+7. Cliente paga via link do Mercado Pago; Billing confirma e publica `billing.payment.approved.v1` → OS vai para `EM_EXECUCAO` e publica `os.approved`.
+8. Execution Service consome `os.approved` e executa o serviço.
+9. Execution publica `execution.completed` → OS vai para `FINALIZADA` e publica `os.status.updated`.
 
-Compensação: `billing.quote.rejected.v1`/`billing.quote.failed.v1`/cancelamento → OS `CANCELADA` + `os.cancelled` (Execution) + `os.cancelled.v1` (Billing).
+Compensação: `billing.quote.rejected.v1`/`billing.quote.failed.v1`/`billing.payment.rejected.v1`/`billing.payment.failed.v1`/cancelamento → OS `CANCELADA` + `os.cancelled` (Execution) + `os.cancelled.v1` (Billing).
 
 ### Compensação / rollback
 
@@ -513,14 +514,15 @@ Arquivos:
 - Steps: `src/test/java/com/f1rsters/os_service/bdd/OSServiceSagaSteps.java`
 - Feature: `src/test/resources/features/os-saga.feature`
 
-Cenários cobertos (4):
+Cenários cobertos (5):
 
-1. **Abertura, aprovação e finalização** — OS criada (`RECEBIDA`) → orçamento gerado (`AGUARDANDO_APROVACAO`) → orçamento aprovado (`EM_EXECUCAO`) → execução concluída (`FINALIZADA`)
+1. **Abertura, aprovação, pagamento e finalização** — OS criada (`RECEBIDA`) → orçamento gerado (`AGUARDANDO_APROVACAO`) → orçamento aprovado (`AGUARDANDO_PAGAMENTO`) → pagamento aprovado (`EM_EXECUCAO`) → execução concluída (`FINALIZADA`)
 2. **Rejeição do orçamento** — orçamento rejeitado pelo Billing cancela a OS (`CANCELADA`), exercitando a compensação do Saga
-3. **Aprovação e execução via eventos** — fluxo completo dirigido por eventos do Saga: `billing.quote.approved.v1` (Billing, envelope `IntegrationEvent`) → `os.approved` (publicado) → `execution.completed` (Execution) → `os.status.updated` (publicado)
-4. **Cancelamento via evento** — evento `os.cancelled` recebido pelo listener transiciona a OS para `CANCELADA`
+3. **Aprovação, pagamento e execução via eventos** — fluxo completo dirigido por eventos do Saga: `billing.quote.approved.v1` → `billing.payment.approved.v1` (Billing, envelope `IntegrationEvent`) → `os.approved` (publicado) → `execution.completed` (Execution) → `os.status.updated` (publicado)
+4. **Rejeição do pagamento** — pagamento rejeitado pelo Billing cancela a OS (`CANCELADA`)
+5. **Cancelamento via evento** — evento `os.cancelled` recebido pelo listener transiciona a OS para `CANCELADA`
 
-Os eventos dos serviços Billing e Execution são simulados nos steps invocando diretamente os métodos do `BillingEventListener` (envelope `IntegrationEvent` do contrato do Billing) e do `OrdemServicoSagaListener` (`OSEvent` do contrato do Execution), com `RabbitTemplate` mockado — validando o contrato de eventos definido em `docs/contrato-eventos-saga.md`, que já está alinhado com o que Billing e Execution implementaram em suas branches `main`.
+Os eventos dos serviços Billing e Execution são simulados nos steps invocando diretamente os métodos do `BillingEventListener` (envelope `IntegrationEvent` do contrato do Billing) e do `OrdemServicoSagaListener` (`OSEvent` do contrato do Execution), com `RabbitTemplate` mockado — validando o contrato de eventos definido em `docs/contrato-eventos-saga.md`, que está alinhado com o que Billing e Execution implementaram em suas branches `main`.
 
 Existe ainda uma **suite BDD E2E** (`src/test/java/com/f1rsters/os_service/e2e/` + `src/test/resources/features-e2e/os-saga-e2e.feature`) que dirige os **3 microserviços reais** via REST e RabbitMQ, sem nenhum mock — ver seção de E2E abaixo.
 
@@ -531,7 +533,7 @@ A integração entre OS Service, Billing Service e Execution Service é validada
 1. Sobe a infraestrutura (RabbitMQ, PostgreSQL, MongoDB replica set `rs0`) via `e2e/docker-compose.e2e.yml`
 2. Compila os 3 serviços (Billing e Execution são clonados de suas branches `main` para `/tmp/mecanica-e2e`)
 3. Sobe os 3 serviços (OS na 8081, Billing na 8080, Execution na 8082)
-4. Executa o fluxo Saga completo: criar OS → orçamento no Billing → aprovar orçamento → execução no Execution → OS `FINALIZADA`
+4. Executa o fluxo Saga completo: criar OS → orçamento no Billing → aprovar orçamento → publicar pagamento aprovado → execução no Execution → OS `FINALIZADA`
 5. Valida cada transição de status e a criação dos recursos nos serviços consumidores
 
 ```bash
@@ -543,13 +545,14 @@ bash e2e/run-e2e.sh --bdd   # executa o BDD E2E (Cucumber) contra os serviços r
 
 O modo `--bdd` sobe a mesma infraestrutura e os 3 serviços, e então roda a suite Cucumber E2E (`RunCucumberE2ETest`), que valida o fluxo completo do Saga com filas reais:
 
-1. **Fluxo feliz** — OS criada → orçamento no Billing → aprovação → execução no Execution → OS `FINALIZADA`
+1. **Fluxo feliz** — OS criada → orçamento no Billing → aprovação → pagamento aprovado (evento publicado no RabbitMQ) → execução no Execution → OS `FINALIZADA`
 2. **Rejeição do orçamento** — orçamento rejeitado no Billing → OS `CANCELADA`
-3. **Cancelamento via evento** — evento `os.cancelled` publicado na fila real do RabbitMQ → OS `CANCELADA` e execução `CANCELLED` no Execution (compensação real)
+3. **Rejeição do pagamento** — pagamento rejeitado (evento publicado no RabbitMQ) → OS `CANCELADA`
+4. **Cancelamento via evento** — evento `os.cancelled` publicado na fila real do RabbitMQ → OS `CANCELADA` e execução `CANCELLED` no Execution (compensação real)
 
 Sem os serviços no ar, os cenários E2E são **pulados** automaticamente (o `mvn verify` normal não quebra).
 
-Fluxo validado: OS `RECEBIDA` → `AGUARDANDO_APROVACAO` → `EM_EXECUCAO` → `FINALIZADA`, com Quote criado no Billing e Execution criada no Execution Service, tudo via filas reais (`mecanica.events` e `os.exchange`).
+Fluxo validado: OS `RECEBIDA` → `AGUARDANDO_APROVACAO` → `AGUARDANDO_PAGAMENTO` → `EM_EXECUCAO` → `FINALIZADA`, com Quote criado no Billing e Execution criada no Execution Service, tudo via filas reais (`mecanica.events` e `os.exchange`). O evento `billing.payment.approved.v1` é publicado manualmente no E2E (não há stub do Mercado Pago).
 
 ---
 
@@ -580,7 +583,7 @@ Fluxo validado: OS `RECEBIDA` → `AGUARDANDO_APROVACAO` → `EM_EXECUCAO` → `
 
 ### Decisão do grupo recomendada
 
-- OS Service: PostgreSQL + RabbitMQ + orquestração de saga
+- OS Service: PostgreSQL + RabbitMQ + Saga coreografada (dono do ciclo de vida da OS)
 - Billing Service: MongoDB ou outro banco NoSQL para orçamento
 - Execution Service: integração via eventos e status de execução
 
@@ -595,7 +598,7 @@ Fluxo validado: OS `RECEBIDA` → `AGUARDANDO_APROVACAO` → `EM_EXECUCAO` → `
 
 ---
 
-O contrato de eventos (`docs/contrato-eventos-saga.md`) está alinhado com o que os Alunos 2 (Billing) e 3 (Execution) implementaram em suas branches `main`, e o estado da integração está documentado em `docs/integracao-microsservicos.md`.
+O contrato de eventos (`docs/contrato-eventos-saga.md`) está alinhado com o que os serviços Billing e Execution implementaram em suas branches `main`, e o estado da integração está documentado em `docs/integracao-microsservicos.md`.
 
 ---
 
