@@ -384,38 +384,6 @@ class OrdemServicoServiceTest {
     }
 
     @Test
-    void processarEventoSaga_DeveAprovarOrdemQuandoOrcamentoAprovado() {
-        Long id = 1L;
-        OrdemServico os = ordemComStatus(id, StatusOrdemServico.AGUARDANDO_APROVACAO);
-
-        when(repository.findById(id)).thenReturn(Optional.of(os));
-        when(repository.save(any(OrdemServico.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        OSEvent event = eventoSaga(id, StatusOrdemServico.EM_EXECUCAO, "orcamento.aprovado");
-
-        OrdemServico result = service.processarEventoSaga(event);
-
-        assertEquals(StatusOrdemServico.EM_EXECUCAO, result.getStatus());
-        verify(rabbitTemplate, times(1)).convertAndSend(eq("os.exchange"), eq("os.approved"), any(OSEvent.class));
-    }
-
-    @Test
-    void processarEventoSaga_DeveCancelarOrdemQuandoOrcamentoRejeitado() {
-        Long id = 1L;
-        OrdemServico os = ordemComStatus(id, StatusOrdemServico.AGUARDANDO_APROVACAO);
-
-        when(repository.findById(id)).thenReturn(Optional.of(os));
-        when(repository.save(any(OrdemServico.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        OSEvent event = eventoSaga(id, StatusOrdemServico.CANCELADA, "orcamento.rejeitado");
-
-        OrdemServico result = service.processarEventoSaga(event);
-
-        assertEquals(StatusOrdemServico.CANCELADA, result.getStatus());
-        verify(rabbitTemplate, times(1)).convertAndSend(eq("os.exchange"), eq("os.cancelled"), any(OSEvent.class));
-    }
-
-    @Test
     void processarEventoSaga_DeveIgnorarEventoDesconhecido() {
         Long id = 1L;
         OrdemServico os = ordemComStatus(id, StatusOrdemServico.RECEBIDA);
@@ -461,7 +429,7 @@ class OrdemServicoServiceTest {
 
         when(repository.findById(id)).thenReturn(Optional.of(os));
 
-        OSEvent event = eventoSaga(id, StatusOrdemServico.EM_EXECUCAO, "orcamento.aprovado");
+        OSEvent event = eventoSaga(id, StatusOrdemServico.FINALIZADA, "execution.completed");
 
         assertThrows(IllegalStateException.class, () -> service.processarEventoSaga(event));
         verify(repository, never()).save(any(OrdemServico.class));
@@ -664,15 +632,15 @@ class OrdemServicoServiceTest {
     @Test
     void processarEventoSaga_DeveRegistrarHistoricoComOrigemSaga() {
         Long id = 1L;
-        OrdemServico os = ordemComStatus(id, StatusOrdemServico.AGUARDANDO_APROVACAO);
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.EM_EXECUCAO);
         when(repository.findById(id)).thenReturn(Optional.of(os));
         when(repository.save(any(OrdemServico.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        service.processarEventoSaga(eventoSaga(id, StatusOrdemServico.AGUARDANDO_APROVACAO, "orcamento.aprovado"));
+        service.processarEventoSaga(eventoSaga(id, StatusOrdemServico.FINALIZADA, "execution.completed"));
 
         verify(historicoRepository).save(argThat(h ->
-                h.getStatusNovo() == StatusOrdemServico.EM_EXECUCAO
-                        && "SAGA:orcamento.aprovado".equals(h.getOrigem())));
+                h.getStatusNovo() == StatusOrdemServico.FINALIZADA
+                        && "SAGA:execution.completed".equals(h.getOrigem())));
     }
 
     @Test
@@ -685,6 +653,276 @@ class OrdemServicoServiceTest {
         service.processarEventoSaga(eventoSaga(id, StatusOrdemServico.RECEBIDA, "evento.desconhecido"));
 
         verify(historicoRepository, never()).save(any(OrdemServicoHistorico.class));
+    }
+
+    @Test
+    void processarEventoBilling_DeveMoverParaAguardandoAprovacaoQuandoQuoteSubmitted() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.RECEBIDA);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+        when(repository.save(any(OrdemServico.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.submitted.v1", id, null);
+
+        assertEquals(StatusOrdemServico.AGUARDANDO_APROVACAO, result.getStatus());
+        verify(historicoRepository).save(argThat(h ->
+                h.getStatusNovo() == StatusOrdemServico.AGUARDANDO_APROVACAO
+                        && "SAGA:billing.quote.submitted.v1".equals(h.getOrigem())));
+    }
+
+    @Test
+    void processarEventoBilling_DeveMoverDeDiagnosticoParaAguardandoAprovacao() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.DIAGNOSTICO);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+        when(repository.save(any(OrdemServico.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.submitted.v1", id, null);
+
+        assertEquals(StatusOrdemServico.AGUARDANDO_APROVACAO, result.getStatus());
+    }
+
+    @Test
+    void processarEventoBilling_NaoDeveAlterarStatusJaAguardandoAprovacao() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.AGUARDANDO_APROVACAO);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+        when(repository.save(any(OrdemServico.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.submitted.v1", id, null);
+
+        assertEquals(StatusOrdemServico.AGUARDANDO_APROVACAO, result.getStatus());
+        verify(historicoRepository, never()).save(any(OrdemServicoHistorico.class));
+    }
+
+    @Test
+    void processarEventoBilling_DeveAprovarOrdemQuandoQuoteApproved() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.AGUARDANDO_APROVACAO);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+        when(repository.save(any(OrdemServico.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.approved.v1", id, null);
+
+        assertEquals(StatusOrdemServico.EM_EXECUCAO, result.getStatus());
+        verify(rabbitTemplate, times(1)).convertAndSend(eq("os.exchange"), eq("os.approved"), any(OSEvent.class));
+    }
+
+    @Test
+    void processarEventoBilling_DeveAutoAvancarDeRecebidaAoAprovar() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.RECEBIDA);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+        when(repository.save(any(OrdemServico.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.approved.v1", id, null);
+
+        assertEquals(StatusOrdemServico.EM_EXECUCAO, result.getStatus());
+    }
+
+    @Test
+    void processarEventoBilling_DeveAutoAvancarDeDiagnosticoAoAprovar() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.DIAGNOSTICO);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+        when(repository.save(any(OrdemServico.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.approved.v1", id, null);
+
+        assertEquals(StatusOrdemServico.EM_EXECUCAO, result.getStatus());
+    }
+
+    @Test
+    void processarEventoBilling_DeveSerIdempotenteQuandoJaEmExecucao() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.EM_EXECUCAO);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.approved.v1", id, null);
+
+        assertEquals(StatusOrdemServico.EM_EXECUCAO, result.getStatus());
+        verify(repository, never()).save(any(OrdemServico.class));
+    }
+
+    @Test
+    void processarEventoBilling_DeveSerIdempotenteQuandoFinalizada() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.FINALIZADA);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.approved.v1", id, null);
+
+        assertEquals(StatusOrdemServico.FINALIZADA, result.getStatus());
+        verify(repository, never()).save(any(OrdemServico.class));
+    }
+
+    @Test
+    void processarEventoBilling_DeveSerIdempotenteQuandoEntregue() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.ENTREGUE);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.approved.v1", id, null);
+
+        assertEquals(StatusOrdemServico.ENTREGUE, result.getStatus());
+        verify(repository, never()).save(any(OrdemServico.class));
+    }
+
+    @Test
+    void processarEventoBilling_DeveLancarQuandoAprovacaoComStatusInvalido() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.CANCELADA);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+
+        assertThrows(IllegalStateException.class,
+                () -> service.processarEventoBilling("billing.quote.approved.v1", id, null));
+        verify(repository, never()).save(any(OrdemServico.class));
+    }
+
+    @Test
+    void processarEventoBilling_DeveCancelarQuandoQuoteRejected() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.AGUARDANDO_APROVACAO);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+        when(repository.save(any(OrdemServico.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.rejected.v1", id, "preço alto");
+
+        assertEquals(StatusOrdemServico.CANCELADA, result.getStatus());
+        verify(rabbitTemplate).convertAndSend(eq("os.exchange"), eq("os.cancelled"), any(OSEvent.class));
+        verify(rabbitTemplate).convertAndSend(eq("mecanica.events"), eq("os.cancelled.v1"), any(Object.class));
+        verify(historicoRepository).save(argThat(h ->
+                h.getStatusNovo() == StatusOrdemServico.CANCELADA
+                        && "SAGA:billing.quote.rejected.v1".equals(h.getOrigem())
+                        && "preço alto".equals(h.getMotivo())));
+    }
+
+    @Test
+    void processarEventoBilling_DeveSerIdempotenteQuandoRejeitadaJaCancelada() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.CANCELADA);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.rejected.v1", id, "motivo");
+
+        assertEquals(StatusOrdemServico.CANCELADA, result.getStatus());
+        verify(repository, never()).save(any(OrdemServico.class));
+    }
+
+    @Test
+    void processarEventoBilling_DeveCancelarQuandoQuoteFailed() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.RECEBIDA);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+        when(repository.save(any(OrdemServico.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.failed.v1", id, "INVALID_QUOTE_DATA");
+
+        assertEquals(StatusOrdemServico.CANCELADA, result.getStatus());
+        verify(rabbitTemplate).convertAndSend(eq("mecanica.events"), eq("os.cancelled.v1"), any(Object.class));
+    }
+
+    @Test
+    void processarEventoBilling_DeveIgnorarEventoDesconhecido() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.RECEBIDA);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+
+        OrdemServico result = service.processarEventoBilling("billing.quote.unknown.v1", id, null);
+
+        assertEquals(StatusOrdemServico.RECEBIDA, result.getStatus());
+        verify(repository, never()).save(any(OrdemServico.class));
+    }
+
+    @Test
+    void processarEventoBilling_DeveLancarQuandoEventTypeNulo() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.processarEventoBilling(null, 1L, null));
+    }
+
+    @Test
+    void processarEventoBilling_DeveLancarQuandoOsIdNulo() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.processarEventoBilling("billing.quote.approved.v1", null, null));
+    }
+
+    @Test
+    void processarEventoBilling_DeveLancarQuandoOrdemNaoExiste() {
+        Long id = 99L;
+        when(repository.findById(id)).thenReturn(Optional.empty());
+
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> service.processarEventoBilling("billing.quote.approved.v1", id, null));
+        assertEquals("OS não encontrada", ex.getMessage());
+    }
+
+    @Test
+    void criarOrdem_DevePublicarQuoteRequestedSemPecas() {
+        CriarOrdemServicoDTO dto = new CriarOrdemServicoDTO();
+        dto.cpfCnpjCliente = "12345678909";
+        dto.placaVeiculo = "ABC1234";
+        dto.servicosIds = List.of("1");
+        dto.pecasIds = null;
+
+        OrdemServico os = ordemComStatus(1L, StatusOrdemServico.RECEBIDA);
+        os.setServicosIds(List.of("1"));
+        os.setPecasIds(null);
+        when(repository.save(any(OrdemServico.class))).thenReturn(os);
+
+        service.criarOrdem(dto);
+
+        verify(rabbitTemplate).convertAndSend(eq("mecanica.events"), eq("os.quote.requested.v1"), any(Object.class));
+    }
+
+    @Test
+    void criarOrdem_DevePublicarQuoteRequestedSemListas() {
+        CriarOrdemServicoDTO dto = new CriarOrdemServicoDTO();
+        dto.cpfCnpjCliente = "12345678909";
+        dto.placaVeiculo = "ABC1234";
+        dto.servicosIds = null;
+        dto.pecasIds = null;
+
+        OrdemServico os = ordemComStatus(1L, StatusOrdemServico.RECEBIDA);
+        os.setServicosIds(null);
+        os.setPecasIds(null);
+        when(repository.save(any(OrdemServico.class))).thenReturn(os);
+
+        service.criarOrdem(dto);
+
+        verify(rabbitTemplate).convertAndSend(eq("mecanica.events"), eq("os.quote.requested.v1"), any(Object.class));
+    }
+
+    @Test
+    void criarOrdem_NaoDeveFalharQuandoPublicacaoBillingFalhar() {
+        CriarOrdemServicoDTO dto = new CriarOrdemServicoDTO();
+        dto.cpfCnpjCliente = "12345678909";
+        dto.placaVeiculo = "ABC1234";
+        dto.servicosIds = List.of("1");
+
+        OrdemServico os = ordemComStatus(1L, StatusOrdemServico.RECEBIDA);
+        os.setServicosIds(List.of("1"));
+        when(repository.save(any(OrdemServico.class))).thenReturn(os);
+        doThrow(new RuntimeException("amqp fail"))
+                .when(rabbitTemplate).convertAndSend(eq("mecanica.events"), eq("os.quote.requested.v1"), any(Object.class));
+
+        OrdemServico result = service.criarOrdem(dto);
+
+        assertNotNull(result);
+        assertEquals(StatusOrdemServico.RECEBIDA, result.getStatus());
+    }
+
+    @Test
+    void cancelarOrdem_NaoDeveFalharQuandoPublicacaoBillingFalhar() {
+        Long id = 1L;
+        OrdemServico os = ordemComStatus(id, StatusOrdemServico.RECEBIDA);
+        when(repository.findById(id)).thenReturn(Optional.of(os));
+        when(repository.save(any(OrdemServico.class))).thenAnswer(inv -> inv.getArgument(0));
+        doThrow(new RuntimeException("amqp fail"))
+                .when(rabbitTemplate).convertAndSend(eq("mecanica.events"), eq("os.cancelled.v1"), any(Object.class));
+
+        OrdemServico result = service.cancelarOrdem(id, "motivo");
+
+        assertEquals(StatusOrdemServico.CANCELADA, result.getStatus());
     }
 
     private OrdemServico ordemComStatus(Long id, StatusOrdemServico status) {

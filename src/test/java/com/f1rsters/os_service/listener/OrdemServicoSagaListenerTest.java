@@ -27,24 +27,6 @@ class OrdemServicoSagaListenerTest {
     }
 
     @Test
-    void onOrcamentoAprovado_DeveDelegarParaService() {
-        OSEvent event = evento(1L, "orcamento.aprovado");
-
-        listener.onOrcamentoAprovado(event);
-
-        verify(service).processarEventoSaga(event);
-    }
-
-    @Test
-    void onOrcamentoRejeitado_DeveDelegarParaService() {
-        OSEvent event = evento(1L, "orcamento.rejeitado");
-
-        listener.onOrcamentoRejeitado(event);
-
-        verify(service).processarEventoSaga(event);
-    }
-
-    @Test
     void onExecutionCompleted_DeveDelegarParaService() {
         OSEvent event = evento(1L, "execution.completed");
 
