@@ -2,7 +2,7 @@ name: os-service-ci-cd
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, homologacao, feature/diogo]
   pull_request:
     branches: [main]
 
@@ -66,6 +66,7 @@ jobs:
             -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
             -Dsonar.java.binaries=target/classes
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+            -Dsonar.tests=src/test
             -Dsonar.qualitygate.wait=true
       - name: Fortify Scan
         uses: fortify/github-action@v3
