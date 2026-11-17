@@ -95,7 +95,8 @@ class OsCancelledPayloadTest {
     @Test
     void equals_ShouldCoverEdgeCases() {
         OsCancelledPayload a = payloadCompleto();
-        assertTrue(a.equals(a));
+        OsCancelledPayload mesmoObjeto = a;
+        assertTrue(a.equals(mesmoObjeto));
 
         OsCancelledPayload sub = new OsCancelledPayload() {
             @Override

@@ -126,7 +126,8 @@ class IntegrationEventTest {
     @Test
     void equals_ShouldCoverEdgeCases() {
         IntegrationEvent<String> a = eventoCompleto();
-        assertTrue(a.equals(a));
+        IntegrationEvent<String> mesmoObjeto = a;
+        assertTrue(a.equals(mesmoObjeto));
 
         IntegrationEvent<String> sub = new IntegrationEvent<String>() {
             @Override

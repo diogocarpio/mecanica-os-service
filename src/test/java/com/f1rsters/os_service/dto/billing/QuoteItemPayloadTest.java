@@ -109,7 +109,8 @@ class QuoteItemPayloadTest {
     @Test
     void equals_ShouldCoverEdgeCases() {
         QuoteItemPayload a = itemCompleto();
-        assertTrue(a.equals(a));
+        QuoteItemPayload mesmoObjeto = a;
+        assertTrue(a.equals(mesmoObjeto));
 
         QuoteItemPayload sub = new QuoteItemPayload() {
             @Override
