@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Entity
 @Table(name = "ordem_servico_historico")
@@ -36,6 +37,6 @@ public class OrdemServicoHistorico {
 
     @PrePersist
     void onCreate() {
-        this.criadoEm = LocalDateTime.now();
+        this.criadoEm = LocalDateTime.now(ZoneId.systemDefault());
     }
 }

@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,6 +37,6 @@ public class OSEvent {
         this.valorTotal = valorTotal;
         this.status = status;
         this.eventType = eventType;
-        this.timestamp = OffsetDateTime.now();
+        this.timestamp = OffsetDateTime.now(ZoneId.systemDefault());
     }
 }

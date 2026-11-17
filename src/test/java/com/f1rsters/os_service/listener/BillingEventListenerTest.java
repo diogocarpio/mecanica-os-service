@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.util.UUID;
 
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -90,12 +91,33 @@ class BillingEventListenerTest {
     }
 
     @Test
-    void onQuoteSubmitted_DeveDelegarOsIdNuloQuandoAusente() {
+    void onQuoteSubmitted_NaoDeveChamarServiceQuandoOsIdAusente() {
         IntegrationEvent<QuoteSubmittedPayload> event = evento(null, new QuoteSubmittedPayload());
 
         listener.onQuoteSubmitted(event);
 
-        verify(service).processarEventoBilling("billing.quote.submitted.v1", null, null);
+        verify(service, never()).processarEventoBilling(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void onQuoteSubmitted_NaoDeveChamarServiceQuandoOsIdEmBranco() {
+        IntegrationEvent<QuoteSubmittedPayload> event = evento("  ", new QuoteSubmittedPayload());
+
+        listener.onQuoteSubmitted(event);
+
+        verify(service, never()).processarEventoBilling(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void onQuoteSubmitted_NaoDeveChamarServiceQuandoOsIdNaoNumerico() {
+        IntegrationEvent<QuoteSubmittedPayload> event = evento("abc", new QuoteSubmittedPayload());
+
+        listener.onQuoteSubmitted(event);
+
+        verify(service, never()).processarEventoBilling(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     private <T> IntegrationEvent<T> evento(String osId, T payload) {
