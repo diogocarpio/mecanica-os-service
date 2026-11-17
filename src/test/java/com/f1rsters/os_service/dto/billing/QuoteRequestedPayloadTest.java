@@ -109,7 +109,8 @@ class QuoteRequestedPayloadTest {
     @Test
     void equals_ShouldCoverEdgeCases() {
         QuoteRequestedPayload a = payloadCompleto();
-        assertTrue(a.equals(a));
+        QuoteRequestedPayload mesmoObjeto = a;
+        assertTrue(a.equals(mesmoObjeto));
 
         QuoteRequestedPayload sub = new QuoteRequestedPayload() {
             @Override

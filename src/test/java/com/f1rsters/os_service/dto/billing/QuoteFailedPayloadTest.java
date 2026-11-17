@@ -100,7 +100,8 @@ class QuoteFailedPayloadTest {
     @Test
     void equals_ShouldCoverEdgeCases() {
         QuoteFailedPayload a = payloadCompleto();
-        assertTrue(a.equals(a));
+        QuoteFailedPayload mesmoObjeto = a;
+        assertTrue(a.equals(mesmoObjeto));
 
         QuoteFailedPayload sub = new QuoteFailedPayload() {
             @Override
@@ -134,8 +135,12 @@ class QuoteFailedPayloadTest {
         QuoteFailedPayload diffFailedAt = payloadCompleto();
         diffFailedAt.setFailedAt(java.time.Instant.parse("2021-01-01T00:00:00Z"));
 
-        assertTrue(full.equals(full));
-        assertTrue(empty.equals(empty));
+        QuoteFailedPayload fullRef = full;
+        QuoteFailedPayload emptyRef = empty;
+        QuoteFailedPayload onlyCodeRef = onlyCode;
+
+        assertTrue(full.equals(fullRef));
+        assertTrue(empty.equals(emptyRef));
         assertFalse(full.equals(empty));
         assertFalse(empty.equals(full));
         assertFalse(onlyCode.equals(onlyMessage));
@@ -144,7 +149,7 @@ class QuoteFailedPayloadTest {
         assertFalse(full.equals(diffCode));
         assertFalse(full.equals(diffMessage));
         assertFalse(full.equals(diffFailedAt));
-        assertTrue(onlyCode.equals(onlyCode));
+        assertTrue(onlyCode.equals(onlyCodeRef));
     }
 
     @Test
