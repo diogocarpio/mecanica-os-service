@@ -196,6 +196,9 @@ public class SagaE2ESteps {
             }
             HttpResponse<String> response = HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             return new RestResponse(response.statusCode(), response.body());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Requisição interrompida: " + method + " " + url, e);
         } catch (Exception e) {
             throw new RuntimeException("Falha na requisição " + method + " " + url, e);
         }
