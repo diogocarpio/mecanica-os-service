@@ -55,11 +55,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: test-and-coverage-reports
+          path: target
       - name: SonarCloud analysis
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
+          SONAR_QG_WAIT: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
         with:
           args: >-
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
@@ -67,8 +69,22 @@ jobs:
             -Dsonar.java.binaries=target/classes
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
             -Dsonar.tests=src/test
-            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.wait=${{ env.SONAR_QG_WAIT }}
+      - name: Check Fortify configuration
+        id: fortify-config
+        env:
+          FOD_URL: ${{ vars.FOD_URL }}
+          FOD_CLIENT_ID: ${{ secrets.FOD_CLIENT_ID }}
+          FOD_CLIENT_SECRET: ${{ secrets.FOD_CLIENT_SECRET }}
+        run: |
+          if [ -n "${FOD_URL}" ] && [ -n "${FOD_CLIENT_ID}" ] && [ -n "${FOD_CLIENT_SECRET}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Credenciais Fortify não configuradas. Scan Fortify será ignorado."
+          fi
       - name: Fortify Scan
+        if: steps.fortify-config.outputs.enabled == 'true'
         uses: fortify/github-action@v3
         env:
           FOD_URL: ${{ vars.FOD_URL }}
