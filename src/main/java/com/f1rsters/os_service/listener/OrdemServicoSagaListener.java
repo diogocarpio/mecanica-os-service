@@ -17,18 +17,6 @@ public class OrdemServicoSagaListener {
         this.service = service;
     }
 
-    @RabbitListener(queues = "billing.orcamento.aprovado.queue")
-    public void onOrcamentoAprovado(OSEvent event) {
-        log.info("Evento de orçamento aprovado recebido: osId={}, eventType={}", event.getOsId(), event.getEventType());
-        service.processarEventoSaga(event);
-    }
-
-    @RabbitListener(queues = "billing.orcamento.rejeitado.queue")
-    public void onOrcamentoRejeitado(OSEvent event) {
-        log.info("Evento de orçamento rejeitado recebido: osId={}, eventType={}", event.getOsId(), event.getEventType());
-        service.processarEventoSaga(event);
-    }
-
     @RabbitListener(queues = "execution.completed.queue")
     public void onExecutionCompleted(OSEvent event) {
         log.info("Evento de execução concluída recebido: osId={}, eventType={}", event.getOsId(), event.getEventType());

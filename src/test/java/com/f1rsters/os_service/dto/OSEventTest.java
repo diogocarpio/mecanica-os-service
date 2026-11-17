@@ -4,8 +4,9 @@ import com.f1rsters.os_service.domain.StatusOrdemServico;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -13,7 +14,7 @@ class OSEventTest {
 
     @Test
     void constructorAndAccessors_ShouldPopulateFields() {
-        LocalDateTime timestamp = LocalDateTime.now();
+        OffsetDateTime timestamp = OffsetDateTime.now();
         OSEvent event = new OSEvent(
                 10L,
                 "12345678909",
@@ -33,6 +34,7 @@ class OSEventTest {
         assertEquals(BigDecimal.valueOf(1000), event.getValorTotal());
         assertEquals(StatusOrdemServico.RECEBIDA, event.getStatus());
         assertEquals("os.created", event.getEventType());
+        assertNotNull(event.getEventId());
         assertNotNull(event.getTimestamp());
 
         OSEvent secondEvent = new OSEvent(
@@ -56,9 +58,10 @@ class OSEventTest {
 
     @Test
     void allArgsConstructor_ShouldPopulateAllFieldsIncludingTimestamp() {
-        LocalDateTime timestamp = LocalDateTime.of(2026, 1, 1, 12, 0);
+        OffsetDateTime timestamp = OffsetDateTime.of(2026, 1, 1, 12, 0, 0, 0, java.time.ZoneOffset.UTC);
 
         OSEvent event = new OSEvent(
+                UUID.randomUUID(),
                 20L,
                 "22222222222",
                 "LMN5678",
@@ -83,6 +86,7 @@ class OSEventTest {
 
     private OSEvent eventoCompleto() {
         return new OSEvent(
+                UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
                 10L,
                 "12345678909",
                 "ABC1234",
@@ -91,7 +95,7 @@ class OSEventTest {
                 BigDecimal.valueOf(1000),
                 StatusOrdemServico.RECEBIDA,
                 "os.created",
-                LocalDateTime.of(2026, 1, 1, 10, 0)
+                OffsetDateTime.of(2026, 1, 1, 10, 0, 0, 0, java.time.ZoneOffset.UTC)
         );
     }
 
@@ -146,7 +150,7 @@ class OSEventTest {
         assertNotEquals(base, difEventType);
 
         OSEvent difTimestamp = eventoCompleto();
-        difTimestamp.setTimestamp(LocalDateTime.of(2026, 2, 1, 10, 0));
+        difTimestamp.setTimestamp(OffsetDateTime.of(2026, 2, 1, 10, 0, 0, 0, java.time.ZoneOffset.UTC));
         assertNotEquals(base, difTimestamp);
 
         OSEvent vazio = new OSEvent();
