@@ -1,6 +1,8 @@
 package com.f1rsters.os_service.listener;
 
 import com.f1rsters.os_service.dto.billing.IntegrationEvent;
+import com.f1rsters.os_service.dto.billing.PaymentFailedPayload;
+import com.f1rsters.os_service.dto.billing.PaymentStatusChangedPayload;
 import com.f1rsters.os_service.dto.billing.QuoteApprovedPayload;
 import com.f1rsters.os_service.dto.billing.QuoteFailedPayload;
 import com.f1rsters.os_service.dto.billing.QuoteRejectedPayload;
@@ -117,6 +119,75 @@ class BillingEventListenerTest {
         listener.onQuoteSubmitted(event);
 
         verify(service, never()).processarEventoBilling(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void onPaymentPending_DeveDelegarParaService() {
+        IntegrationEvent<PaymentStatusChangedPayload> event = evento("1", new PaymentStatusChangedPayload());
+
+        listener.onPaymentPending(event);
+
+        verify(service).processarEventoPagamento("billing.payment.pending.v1", 1L, null);
+    }
+
+    @Test
+    void onPaymentApproved_DeveDelegarParaService() {
+        IntegrationEvent<PaymentStatusChangedPayload> event = evento("1", new PaymentStatusChangedPayload());
+
+        listener.onPaymentApproved(event);
+
+        verify(service).processarEventoPagamento("billing.payment.approved.v1", 1L, null);
+    }
+
+    @Test
+    void onPaymentRejected_DeveDelegarMotivoParaService() {
+        PaymentStatusChangedPayload payload = new PaymentStatusChangedPayload();
+        payload.setStatus("REJECTED");
+        IntegrationEvent<PaymentStatusChangedPayload> event = evento("1", payload);
+
+        listener.onPaymentRejected(event);
+
+        verify(service).processarEventoPagamento("billing.payment.rejected.v1", 1L, "REJECTED");
+    }
+
+    @Test
+    void onPaymentRejected_DeveDelegarNuloQuandoPayloadNulo() {
+        IntegrationEvent<PaymentStatusChangedPayload> event = evento("1", null);
+
+        listener.onPaymentRejected(event);
+
+        verify(service).processarEventoPagamento("billing.payment.rejected.v1", 1L, null);
+    }
+
+    @Test
+    void onPaymentFailed_DeveDelegarMotivoParaService() {
+        PaymentFailedPayload payload = new PaymentFailedPayload();
+        payload.setCode("MERCADO_PAGO_ERROR");
+        payload.setMessage("timeout no provedor");
+        IntegrationEvent<PaymentFailedPayload> event = evento("1", payload);
+
+        listener.onPaymentFailed(event);
+
+        verify(service).processarEventoPagamento("billing.payment.failed.v1", 1L, "MERCADO_PAGO_ERROR: timeout no provedor");
+    }
+
+    @Test
+    void onPaymentFailed_DeveDelegarNuloQuandoPayloadNulo() {
+        IntegrationEvent<PaymentFailedPayload> event = evento("1", null);
+
+        listener.onPaymentFailed(event);
+
+        verify(service).processarEventoPagamento("billing.payment.failed.v1", 1L, null);
+    }
+
+    @Test
+    void onPaymentApproved_NaoDeveChamarServiceQuandoOsIdInvalido() {
+        IntegrationEvent<PaymentStatusChangedPayload> event = evento("abc", new PaymentStatusChangedPayload());
+
+        listener.onPaymentApproved(event);
+
+        verify(service, never()).processarEventoPagamento(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 

@@ -1,6 +1,8 @@
 package com.f1rsters.os_service.listener;
 
 import com.f1rsters.os_service.dto.billing.IntegrationEvent;
+import com.f1rsters.os_service.dto.billing.PaymentFailedPayload;
+import com.f1rsters.os_service.dto.billing.PaymentStatusChangedPayload;
 import com.f1rsters.os_service.dto.billing.QuoteApprovedPayload;
 import com.f1rsters.os_service.dto.billing.QuoteFailedPayload;
 import com.f1rsters.os_service.dto.billing.QuoteRejectedPayload;
@@ -51,6 +53,36 @@ public class BillingEventListener {
         dispatch("billing.quote.failed.v1", event, motivo);
     }
 
+    @RabbitListener(queues = "os.billing.payment-pending.queue")
+    public void onPaymentPending(IntegrationEvent<PaymentStatusChangedPayload> event) {
+        log.info("Evento billing.payment.pending recebido: osId={}, eventId={}", event.getOsId(), event.getEventId());
+        dispatchPayment("billing.payment.pending.v1", event, null);
+    }
+
+    @RabbitListener(queues = "os.billing.payment-approved.queue")
+    public void onPaymentApproved(IntegrationEvent<PaymentStatusChangedPayload> event) {
+        log.info("Evento billing.payment.approved recebido: osId={}, eventId={}", event.getOsId(), event.getEventId());
+        dispatchPayment("billing.payment.approved.v1", event, null);
+    }
+
+    @RabbitListener(queues = "os.billing.payment-rejected.queue")
+    public void onPaymentRejected(IntegrationEvent<PaymentStatusChangedPayload> event) {
+        String motivo = event.getPayload() != null ? event.getPayload().getStatus() : null;
+        log.info("Evento billing.payment.rejected recebido: osId={}, eventId={}, motivo={}",
+                event.getOsId(), event.getEventId(), motivo);
+        dispatchPayment("billing.payment.rejected.v1", event, motivo);
+    }
+
+    @RabbitListener(queues = "os.billing.payment-failed.queue")
+    public void onPaymentFailed(IntegrationEvent<PaymentFailedPayload> event) {
+        String motivo = event.getPayload() != null
+                ? event.getPayload().getCode() + ": " + event.getPayload().getMessage()
+                : null;
+        log.info("Evento billing.payment.failed recebido: osId={}, eventId={}, motivo={}",
+                event.getOsId(), event.getEventId(), motivo);
+        dispatchPayment("billing.payment.failed.v1", event, motivo);
+    }
+
     private void dispatch(String eventType, IntegrationEvent<?> event, String motivo) {
         Long osId = parseOsId(event);
         if (osId == null) {
@@ -58,6 +90,15 @@ public class BillingEventListener {
             return;
         }
         service.processarEventoBilling(eventType, osId, motivo);
+    }
+
+    private void dispatchPayment(String eventType, IntegrationEvent<?> event, String motivo) {
+        Long osId = parseOsId(event);
+        if (osId == null) {
+            log.warn("Evento {} ignorado: osId ausente ou inválido: {}", eventType, event.getOsId());
+            return;
+        }
+        service.processarEventoPagamento(eventType, osId, motivo);
     }
 
     private Long parseOsId(IntegrationEvent<?> event) {
