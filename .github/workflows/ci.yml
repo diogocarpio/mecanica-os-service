@@ -27,6 +27,24 @@ jobs:
           cache: maven
       - name: Run tests and coverage
         run: mvn -B verify
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: SonarCloud analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+          SONAR_QG_WAIT: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
+        run: >-
+          if [ -z "${SONAR_TOKEN}" ]; then
+            echo "::warning::SONAR_TOKEN não configurado. Análise SonarCloud ignorada.";
+            exit 0;
+          fi;
+          mvn -B sonar:sonar
+          -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+          -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+          -Dsonar.qualitygate.wait=${{ env.SONAR_QG_WAIT }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -37,39 +55,13 @@ jobs:
             target/classes
 
   sonar-fortify:
-    name: Sonar and Fortify Analysis
+    name: Fortify Analysis
     runs-on: ubuntu-24.04
     needs: build-test
     permissions:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-          cache: maven
-      - uses: actions/download-artifact@v4
-        with:
-          name: test-and-coverage-reports
-          path: target
-      - name: SonarCloud analysis
-        uses: SonarSource/sonarqube-scan-action@v6
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: https://sonarcloud.io
-          SONAR_QG_WAIT: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
-        with:
-          args: >-
-            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
-            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
-            -Dsonar.java.binaries=target/classes
-            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
-            -Dsonar.tests=src/test
-            -Dsonar.qualitygate.wait=${{ env.SONAR_QG_WAIT }}
       - name: Check Fortify configuration
         id: fortify-config
         env:
