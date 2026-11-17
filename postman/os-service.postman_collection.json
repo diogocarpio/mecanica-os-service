@@ -52,6 +52,25 @@
       }
     },
     {
+      "name": "Detalhar Ordem",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8081/api/ordens-servico/1",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8081",
+          "path": [
+            "api",
+            "ordens-servico",
+            "1"
+          ]
+        }
+      }
+    },
+    {
       "name": "Consultar Status da OS",
       "request": {
         "method": "GET",

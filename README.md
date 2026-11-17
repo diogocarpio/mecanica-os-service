@@ -94,6 +94,7 @@ O projeto do challenge exige, no conjunto da arquitetura, pelo menos um banco No
 | H2 Database | Testes |
 | SpringDoc OpenAPI | Swagger |
 | Lombok | Redução de boilerplate |
+| JUnit 5 | Testes unitários |
 | Cucumber + JUnit 5 | Testes BDD |
 | Maven | Build e dependências |
 | Docker | Containerização |
@@ -147,10 +148,13 @@ mecanica-os-service/
 │   │   │   │   ├── StatusOrdemServicoDTO.java
 │   │   │   │   ├── NotificacaoStatusDTO.java
 │   │   │   │   ├── RespostaOrcamentoDTO.java
-│   │   │   │   └── OSEvent.java
+│   │   │   │   ├── OSEvent.java
+│   │   │   │   └── billing/             # IntegrationEvent + payloads do Billing
 │   │   │   ├── exception/
-│   │   │   │   └── ApiExceptionHandler.java
+│   │   │   │   ├── ApiExceptionHandler.java
+│   │   │   │   └── OrdemServicoNaoEncontradaException.java
 │   │   │   ├── listener/
+│   │   │   │   ├── BillingEventListener.java
 │   │   │   │   └── OrdemServicoSagaListener.java
 │   │   │   ├── mapper/
 │   │   │   │   └── OrdemServicoMapper.java
@@ -174,22 +178,27 @@ mecanica-os-service/
 │   │       └── application.yaml
 │   └── test/
 │       ├── java/com/f1rsters/os_service/
-│       │   ├── bdd/                  # Cucumber: os-saga.feature
+│       │   ├── bdd/                  # Cucumber: os-saga.feature (contrato)
+│       │   ├── e2e/                  # Cucumber E2E: os-saga-e2e.feature (serviços reais)
 │       │   ├── config/
 │       │   ├── controller/
 │       │   ├── domain/
 │       │   ├── dto/
 │       │   ├── exception/
 │       │   ├── listener/
-│       │   ├── repository/
 │       │   ├── mapper/
 │       │   ├── service/
 │       │   ├── util/
 │       │   └── validation/
 │       └── resources/
 │           ├── application-test.yaml
-│           └── features/
-│               └── os-saga.feature
+│           ├── features/
+│           │   └── os-saga.feature
+│           └── features-e2e/
+│               └── os-saga-e2e.feature
+├── e2e/                          # Teste E2E real (3 serviços + RabbitMQ + Postgres + Mongo)
+│   ├── docker-compose.e2e.yml
+│   └── run-e2e.sh
 ├── Dockerfile
 ├── docker-compose.yml
 ├── pom.xml
@@ -223,18 +232,18 @@ O projeto do monolito de referência usa `mapper` para separar conversão de ent
 
 A saga será orquestrada pelo OS Service e pelos serviços de apoio do ecossistema.
 
-Fluxo principal:
+Fluxo principal (contratos reais implementados — ver `docs/contrato-eventos-saga.md`):
 
-1. OS Service recebe a criação da OS.
-2. Persiste a OS em PostgreSQL.
-3. Publica evento `os.created` no RabbitMQ.
-4. Billing Service recebe o evento e gera o orçamento.
-5. Cliente aprova ou rejeita o orçamento.
-6. Billing Service publica aprovação/rejeição.
-7. OS Service recebe a aprovação e atualiza a OS para `EM_EXECUCAO`.
-8. Execution Service recebe `os.approved` e inicia a execução.
-9. Quando finaliza, publica status de conclusão.
-10. OS Service atualiza o estado final da ordem.
+1. OS Service recebe a criação da OS e persiste em PostgreSQL (`RECEBIDA`).
+2. Publica `os.created` no `os.exchange` e `os.quote.requested.v1` no `mecanica.events`.
+3. Billing Service consome `os.quote.requested.v1`, gera e submete o orçamento.
+4. Billing publica `billing.quote.submitted.v1` → OS vai para `AGUARDANDO_APROVACAO`.
+5. Cliente aprova o orçamento via `POST /api/v1/quotes/{id}/approve` no Billing.
+6. Billing publica `billing.quote.approved.v1` → OS vai para `EM_EXECUCAO` e publica `os.approved`.
+7. Execution Service consome `os.approved` e executa o serviço.
+8. Execution publica `execution.completed` → OS vai para `FINALIZADA` e publica `os.status.updated`.
+
+Compensação: `billing.quote.rejected.v1`/`billing.quote.failed.v1`/cancelamento → OS `CANCELADA` + `os.cancelled` (Execution) + `os.cancelled.v1` (Billing).
 
 ### Compensação / rollback
 
@@ -484,9 +493,8 @@ O `mvn verify` executa testes, gera o relatório JaCoCo e valida a regra de cobe
 
 Estado atual da cobertura:
 
-- **180 testes** (unitários + BDD/Cucumber), 0 falhas
-- **100% de instruções, branches e linhas** em todas as classes verificadas pelo JaCoCo check
-- BDD com 4 cenários do fluxo Saga (criação, aprovação, rejeição, execução concluída e cancelamento via eventos)
+- **280 testes** (unitários + BDD/Cucumber), 0 falhas (3 cenários E2E pulados sem os serviços no ar)
+- **100% de instruções, branches e linhas** em todos os pacotes (`service`, `listener`, `controller`, `config`, `domain`, `dto` — incluindo `dto/billing` —, `exception`, `mapper`, `util`, `validation`)
 
 Relatório: `target/site/jacoco/index.html`
 
@@ -509,10 +517,39 @@ Cenários cobertos (4):
 
 1. **Abertura, aprovação e finalização** — OS criada (`RECEBIDA`) → orçamento gerado (`AGUARDANDO_APROVACAO`) → orçamento aprovado (`EM_EXECUCAO`) → execução concluída (`FINALIZADA`)
 2. **Rejeição do orçamento** — orçamento rejeitado pelo Billing cancela a OS (`CANCELADA`), exercitando a compensação do Saga
-3. **Aprovação e execução via eventos** — fluxo completo dirigido por eventos do Saga: `orcamento.aprovado` (Billing) → `os.approved` (publicado) → `execution.completed` (Execution) → `os.status.updated` (publicado)
+3. **Aprovação e execução via eventos** — fluxo completo dirigido por eventos do Saga: `billing.quote.approved.v1` (Billing, envelope `IntegrationEvent`) → `os.approved` (publicado) → `execution.completed` (Execution) → `os.status.updated` (publicado)
 4. **Cancelamento via evento** — evento `os.cancelled` recebido pelo listener transiciona a OS para `CANCELADA`
 
-Os eventos dos serviços Billing e Execution são simulados nos steps invocando diretamente os métodos do `OrdemServicoSagaListener` (com `RabbitTemplate` mockado), validando o contrato de eventos definido em `docs/contrato-eventos-saga.md` — incluindo os eventos publicados pelo OS Service (`os.created`, `os.approved`, `os.cancelled`, `os.status.updated`). A integração BDD real entre os 3 microsserviços depende da implementação dos Alunos 2 e 3 (ver `docs/integracao-microsservicos.md`).
+Os eventos dos serviços Billing e Execution são simulados nos steps invocando diretamente os métodos do `BillingEventListener` (envelope `IntegrationEvent` do contrato do Billing) e do `OrdemServicoSagaListener` (`OSEvent` do contrato do Execution), com `RabbitTemplate` mockado — validando o contrato de eventos definido em `docs/contrato-eventos-saga.md`, que já está alinhado com o que Billing e Execution implementaram em suas branches `main`.
+
+Existe ainda uma **suite BDD E2E** (`src/test/java/com/f1rsters/os_service/e2e/` + `src/test/resources/features-e2e/os-saga-e2e.feature`) que dirige os **3 microserviços reais** via REST e RabbitMQ, sem nenhum mock — ver seção de E2E abaixo.
+
+### Teste E2E real (3 serviços)
+
+A integração entre OS Service, Billing Service e Execution Service é validada de ponta a ponta com comunicação real via RabbitMQ, sem nenhum mock. O script `e2e/run-e2e.sh`:
+
+1. Sobe a infraestrutura (RabbitMQ, PostgreSQL, MongoDB replica set `rs0`) via `e2e/docker-compose.e2e.yml`
+2. Compila os 3 serviços (Billing e Execution são clonados de suas branches `main` para `/tmp/mecanica-e2e`)
+3. Sobe os 3 serviços (OS na 8081, Billing na 8080, Execution na 8082)
+4. Executa o fluxo Saga completo: criar OS → orçamento no Billing → aprovar orçamento → execução no Execution → OS `FINALIZADA`
+5. Valida cada transição de status e a criação dos recursos nos serviços consumidores
+
+```bash
+bash e2e/run-e2e.sh          # build + execução completa (fluxo shell)
+SKIP_BUILD=1 bash e2e/run-e2e.sh   # reutiliza jars já compilados
+bash e2e/run-e2e.sh --keep  # mantém os serviços no ar ao final
+bash e2e/run-e2e.sh --bdd   # executa o BDD E2E (Cucumber) contra os serviços reais
+```
+
+O modo `--bdd` sobe a mesma infraestrutura e os 3 serviços, e então roda a suite Cucumber E2E (`RunCucumberE2ETest`), que valida o fluxo completo do Saga com filas reais:
+
+1. **Fluxo feliz** — OS criada → orçamento no Billing → aprovação → execução no Execution → OS `FINALIZADA`
+2. **Rejeição do orçamento** — orçamento rejeitado no Billing → OS `CANCELADA`
+3. **Cancelamento via evento** — evento `os.cancelled` publicado na fila real do RabbitMQ → OS `CANCELADA` e execução `CANCELLED` no Execution (compensação real)
+
+Sem os serviços no ar, os cenários E2E são **pulados** automaticamente (o `mvn verify` normal não quebra).
+
+Fluxo validado: OS `RECEBIDA` → `AGUARDANDO_APROVACAO` → `EM_EXECUCAO` → `FINALIZADA`, com Quote criado no Billing e Execution criada no Execution Service, tudo via filas reais (`mecanica.events` e `os.exchange`).
 
 ---
 
@@ -529,14 +566,15 @@ Os eventos dos serviços Billing e Execution são simulados nos steps invocando 
 - [x] Estrutura de eventos via RabbitMQ
 - [x] Testes unitários
 - [x] Testes BDD (Cucumber) do fluxo Saga com eventos de Billing e Execution
+- [x] Teste E2E real do fluxo Saga entre os 3 serviços (filas reais, sem mocks)
 - [x] Cobertura com JaCoCo (100% instruções, branches e linhas nas classes verificadas)
 - [x] Documentação inicial do projeto
 
 ### Requisitos que dependem do conjunto do grupo
 
 - [ ] Banco NoSQL no conjunto da solução (Billing Service)
-- [ ] Fluxo completo de Saga integrado entre microsserviços (depende de Billing e Execution)
-- [ ] BDD de integração real entre os 3 serviços (spec em `docs/integracao-microsservicos.md`)
+- [x] Fluxo completo de Saga com contratos alinhados aos serviços Billing e Execution (eventos versionados `mecanica.events` + `os.exchange`)
+- [x] E2E real entre os 3 serviços no ar (`e2e/run-e2e.sh` — RabbitMQ + Postgres + Mongo)
 - [ ] Swagger/Postman final do fluxo completo
 - [ ] Deploy completo e monitoramento em ambiente integrado
 
@@ -557,7 +595,7 @@ Os eventos dos serviços Billing e Execution são simulados nos steps invocando 
 
 ---
 
-O contrato de eventos (`docs/contrato-eventos-saga.md`) e a spec de integração (`docs/integracao-microsservicos.md`) já estão prontos para os Alunos 2 (Billing) e 3 (Execution) implementarem seus serviços.
+O contrato de eventos (`docs/contrato-eventos-saga.md`) está alinhado com o que os Alunos 2 (Billing) e 3 (Execution) implementaram em suas branches `main`, e o estado da integração está documentado em `docs/integracao-microsservicos.md`.
 
 ---
 
