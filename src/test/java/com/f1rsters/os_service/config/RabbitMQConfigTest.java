@@ -39,6 +39,10 @@ class RabbitMQConfigTest {
         assertEquals("billing.quote.approved.v1", config.billingQuoteApprovedBinding().getRoutingKey());
         assertEquals("billing.quote.rejected.v1", config.billingQuoteRejectedBinding().getRoutingKey());
         assertEquals("billing.quote.failed.v1", config.billingQuoteFailedBinding().getRoutingKey());
+        assertEquals("billing.payment.pending.v1", config.billingPaymentPendingBinding().getRoutingKey());
+        assertEquals("billing.payment.approved.v1", config.billingPaymentApprovedBinding().getRoutingKey());
+        assertEquals("billing.payment.rejected.v1", config.billingPaymentRejectedBinding().getRoutingKey());
+        assertEquals("billing.payment.failed.v1", config.billingPaymentFailedBinding().getRoutingKey());
         assertEquals("execution.completed", config.executionCompletedBinding().getRoutingKey());
         assertEquals("os.cancelled", config.osCancelledBinding().getRoutingKey());
     }

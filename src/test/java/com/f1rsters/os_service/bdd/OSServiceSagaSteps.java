@@ -7,6 +7,7 @@ import com.f1rsters.os_service.dto.NotificacaoStatusDTO;
 import com.f1rsters.os_service.dto.OSEvent;
 import com.f1rsters.os_service.dto.RespostaOrcamentoDTO;
 import com.f1rsters.os_service.dto.billing.IntegrationEvent;
+import com.f1rsters.os_service.dto.billing.PaymentStatusChangedPayload;
 import com.f1rsters.os_service.dto.billing.QuoteApprovedPayload;
 import com.f1rsters.os_service.dto.billing.QuoteRejectedPayload;
 import com.f1rsters.os_service.dto.billing.QuoteSubmittedPayload;
@@ -117,7 +118,21 @@ public class OSServiceSagaSteps {
     @And("o billing service publica o evento de orçamento aprovado")
     public void billingPublicaOrcamentoAprovado() {
         billingEventListener.onQuoteApproved(eventoBilling("billing.quote.approved.v1", new QuoteApprovedPayload()));
+    }
+
+    @When("o billing service publica o evento de pagamento aprovado")
+    public void billingPublicaPagamentoAprovado() {
+        billingEventListener.onPaymentApproved(eventoBilling("billing.payment.approved.v1", new PaymentStatusChangedPayload()));
         verify(rabbitTemplate).convertAndSend(eq("os.exchange"), eq("os.approved"), any(OSEvent.class));
+    }
+
+    @When("o billing service publica o evento de pagamento rejeitado")
+    public void billingPublicaPagamentoRejeitado() {
+        PaymentStatusChangedPayload payload = new PaymentStatusChangedPayload();
+        payload.setStatus("REJECTED");
+        billingEventListener.onPaymentRejected(eventoBilling("billing.payment.rejected.v1", payload));
+        verify(rabbitTemplate).convertAndSend(eq("os.exchange"), eq("os.cancelled"), any(OSEvent.class));
+        verify(rabbitTemplate).convertAndSend(eq("mecanica.events"), eq("os.cancelled.v1"), any(Object.class));
     }
 
     @And("o billing service publica o evento de orçamento rejeitado")

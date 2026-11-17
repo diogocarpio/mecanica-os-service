@@ -135,6 +135,14 @@ ok "Quote encontrada: id=$QUOTE_ID"
 log "Aprovando orçamento no Billing..."
 curl -sf -X POST "$BILLING_URL/api/v1/quotes/$QUOTE_ID/approve" >/dev/null
 
+wait_os_status "$OS_ID" "AGUARDANDO_PAGAMENTO"
+
+log "Publicando pagamento aprovado (billing.payment.approved.v1) no RabbitMQ..."
+PAYLOAD='{"eventId":"'$(python3 -c 'import uuid;print(uuid.uuid4())')'","eventType":"billing.payment.approved.v1","eventVersion":1,"occurredAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","source":"billing-service","correlationId":"'"$OS_ID"'","causationId":null,"osId":"'"$OS_ID"'","payload":{}}'
+curl -sf -u guest:guest -X POST "http://localhost:15672/api/exchanges/%2F/mecanica.events/publish" \
+  -H "Content-Type: application/json" \
+  -d '{"properties":{},"routing_key":"billing.payment.approved.v1","payload":'"$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$PAYLOAD")"',"payload_encoding":"string"}' >/dev/null
+
 wait_os_status "$OS_ID" "EM_EXECUCAO"
 
 log "Buscando execução no Execution..."
@@ -157,4 +165,4 @@ echo ""
 echo -e "\033[1;32m========================================\033[0m"
 echo -e "\033[1;32m E2E PASSOU — Saga completa via filas reais\033[0m"
 echo -e "\033[1;32m========================================\033[0m"
-echo "Fluxo: OS $OS_ID -> AGUARDANDO_APROVACAO -> EM_EXECUCAO -> FINALIZADA"
+echo "Fluxo: OS $OS_ID -> AGUARDANDO_APROVACAO -> AGUARDANDO_PAGAMENTO -> EM_EXECUCAO -> FINALIZADA"
